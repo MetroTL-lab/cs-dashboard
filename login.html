@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CS-MetroTransit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="/images/favicon.svg" type="image/png">
+
+</head>
+<body class="login-body">
+  <main class="login-panel">
+    <span class="wordmark">Metro<span class="wordmark-accent">Transit</span> <span class="wordmark-suffix">Admin</span></span>
+    <h1>Sign in</h1>
+    <p class="lede">Restricted to MetroTransit staff.</p>
+
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" required autocomplete="email" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" required autocomplete="current-password" />
+      </div>
+      <p class="error-text" id="login-error" role="alert" hidden></p>
+      <button type="submit" class="btn-primary" id="login-btn">Sign in</button>
+    </form>
+  </main>
+
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-modal" role="status" aria-live="polite">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p class="loading-message" id="loading-message">Loading…</p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+</body>
+</html>

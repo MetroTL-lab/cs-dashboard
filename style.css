@@ -1,0 +1,685 @@
+/* ==========================================================================
+   MetroTransit Admin
+   Same system as the seller-application flow: flat ink surfaces, one red
+   used only where it's meaningful (brand, primary/destructive actions,
+   real urgency), everything else stays quiet so red keeps its signal.
+   ========================================================================== */
+:root {
+  --bg: #131313;
+  --surface: #1a1a1a;
+  --surface-raised: #202020;
+  --surface-hover: #242424;
+  --border: #2b2b2b;
+  --border-strong: #3a3a3a;
+
+  --accent: #e31b23;
+  --accent-dim: #a3151b;
+  --accent-soft: rgba(227, 27, 35, 0.14);
+
+  --text: #ededed;
+  --text-soft: #a8a5a0;
+  --text-faint: #706d69;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font-display: Arial, "Inter", sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--accent); color: #fff; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* -------------------------------------------------------------------------
+   Wordmark
+   ------------------------------------------------------------------------- */
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+}
+.wordmark::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 18px;
+  background: var(--accent);
+  flex-shrink: 0;
+  border-radius: 1px;
+  margin-right: 10px;
+}
+.wordmark-accent { color: var(--accent); }
+.wordmark-suffix { color: var(--text-faint); font-family: var(--font-body); font-size: 12.5px; font-weight: 500; margin-left: 10px;}
+
+h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+h2 { margin: 0; }
+
+.lede, .panel-lede {
+  color: var(--text-soft);
+  font-size: 14.5px;
+  margin: 0 0 28px;
+  max-width: 56ch;
+}
+
+.panel-header { margin-bottom: 8px; }
+
+/* -------------------------------------------------------------------------
+   Form fields
+   ------------------------------------------------------------------------- */
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 7px; color: var(--text-soft); }
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"] {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--text);
+  font-family: var(--font-body);
+  transition: border-color 0.15s var(--ease);
+}
+input::placeholder { color: var(--text-faint); }
+input:focus { outline: none; border-color: var(--accent); }
+
+/* -------------------------------------------------------------------------
+   Buttons — ink confirms most actions; red is reserved for the primary
+   call to action and anything destructive.
+   ------------------------------------------------------------------------- */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 15px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.btn-secondary:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+
+.btn-danger {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid rgba(227, 27, 35, 0.45);
+  border-radius: var(--radius-sm);
+  padding: 9px 15px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.btn-danger:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+.error-text { color: var(--accent); font-size: 13px; margin: -6px 0 14px; }
+
+/* -------------------------------------------------------------------------
+   Login
+   ------------------------------------------------------------------------- */
+.login-body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-panel {
+  width: 100%;
+  max-width: 380px;
+  padding: 42px 38px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+}
+.login-panel .wordmark { display: inline-flex; margin-bottom: 38px; }
+.login-panel h1 { margin-top: 0; }
+
+/* -------------------------------------------------------------------------
+   Shell
+   ------------------------------------------------------------------------- */
+.shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 236px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 26px 0 16px;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-header { padding: 0 22px; margin-bottom: 32px; }
+
+.nav { display: flex; flex-direction: column; gap: 2px; flex: 1; padding: 0 12px; }
+.nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.nav-link:hover { background: var(--surface-hover); color: var(--text); }
+.nav-link.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.nav-link.active::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.nav-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 18px;
+  text-align: center;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px 12px 0;
+  border-top: 1px solid var(--border);
+}
+.nav-signout {
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  font-family: var(--font-body);
+  font-size: 13px;
+  text-align: left;
+  padding: 10px 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.nav-signout:hover { color: var(--text); background: var(--surface-hover); }
+
+.content { flex: 1; padding: 48px 56px; max-width: 980px; }
+
+.panel-section { display: none; }
+.panel-section.active { display: block; }
+
+/* -------------------------------------------------------------------------
+   Stat grid — deliberately has no column count anywhere. Cards are flex
+   items that wrap on their own, and the divider lines are drawn by the
+   container's background showing through a 1px gap rather than manual
+   border-right/nth-child rules — so adding or removing a stat card is a
+   pure HTML change; nothing here needs updating to match.
+   ------------------------------------------------------------------------- */
+.stat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin: 24px 0 40px;
+}
+.stat-grid dd, .stat-grid dt { margin: 0; }
+.stat-card {
+  flex: 1 1 160px;
+  border: none;
+  background: var(--surface);
+  padding: 24px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+button.stat-card {
+  cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+button.stat-card:hover { background: var(--surface-hover); }
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1;
+}
+/* Highlighted by class, not position — the three cards that represent an
+   action queue (something needs an admin's attention), not a plain
+   count. Stays correct however the columns get reordered later. */
+.stat-card--urgent .stat-value {
+  color: var(--accent);
+}
+.stat-label { font-size: 13px; color: var(--text-soft); }
+
+/* -------------------------------------------------------------------------
+   Lists & cards
+   ------------------------------------------------------------------------- */
+.list { display: flex; flex-direction: column; gap: 12px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.card:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+/* Panels dealing with something flagged get a red left edge, so severity
+   reads structurally rather than only through the chip text. */
+#panel-flagged .card,
+#panel-applications .card {
+  border-left-color: var(--border-strong);
+}
+#panel-flagged .card:has(.status-warned),
+#panel-flagged .card:has(.status-taken_down) {
+  border-left-color: var(--accent);
+}
+
+.card-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.card-title { font-weight: 600; font-size: 15px; margin: 0 0 3px; color: var(--text); }
+.card-subtitle { font-size: 13px; color: var(--text-soft); margin: 0; }
+.card-meta { font-size: 12.5px; color: var(--text-faint); margin: 9px 0 0; }
+.card-notice {
+  font-size: 13px;
+  background: var(--accent-soft);
+  color: var(--text);
+  border: 1px solid rgba(227, 27, 35, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  margin: 11px 0 0;
+}
+.card-actions { display: flex; gap: 9px; margin-top: 15px; flex-wrap: wrap; }
+
+/* -------------------------------------------------------------------------
+   Status chips — one accent red, reserved for genuine urgency. Everything
+   else (pending, active, inactive) stays neutral so red still stands out.
+   ------------------------------------------------------------------------- */
+.status-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.status-warned { background: var(--accent-soft); color: var(--text); border: 1px solid rgba(227, 27, 35, 0.4); }
+.status-appeal_pending { background: var(--surface-raised); color: var(--text); border: 1px solid var(--border-strong); }
+.status-taken_down { background: var(--accent); color: #fff; }
+.status-inactive { background: transparent; color: var(--text-faint); border: 1px solid var(--border); }
+.status-active { background: var(--surface-raised); color: var(--text-soft); border: 1px solid var(--border); }
+
+.card-title-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s ease, color 0.15s ease;
+}
+.card-title-link:hover { text-decoration-color: var(--accent); color: var(--text); }
+
+.back-link { margin-bottom: 22px; }
+
+.search-subheading {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding-bottom: 9px;
+  margin: 30px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.search-subheading:first-of-type { margin-top: 0; }
+
+.empty-state {
+  color: var(--text-faint);
+  font-size: 14px;
+  margin-top: 20px;
+  padding: 22px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  text-align: center;
+  background: var(--surface);
+}
+
+.search-form { display: flex; gap: 10px; margin-bottom: 30px; }
+.search-form input { flex: 1; }
+
+.list-controls { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+.filter-select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 30px 9px 12px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: var(--font-body);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' stroke='%23a8a5a0' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.filter-select:focus { outline: none; border-color: var(--accent); }
+
+.load-more-btn {
+  display: block;
+  margin: 6px auto 0;
+}
+
+.toast {
+  position: fixed;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-raised);
+  color: var(--text);
+  padding: 13px 22px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 20px 40px -20px rgba(0, 0, 0, 0.8);
+  font-size: 14px;
+  z-index: 100;
+}
+.toast.error { border-left-color: var(--accent); color: var(--text); }
+
+/* -------------------------------------------------------------------------
+   Loading overlay — shown while an action is in flight. Reference-counted
+   in JS so overlapping requests don't hide it early.
+   ------------------------------------------------------------------------- */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.72);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s var(--ease);
+}
+.loading-overlay.visible { opacity: 1; pointer-events: auto; }
+
+.loading-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  min-width: 220px;
+  padding: 30px 38px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.85);
+}
+
+.loading-spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: loading-spin 0.75s linear infinite;
+}
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+
+.loading-message {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .loading-spinner { animation-duration: 1.6s; }
+}
+
+/* -------------------------------------------------------------------------
+   Reason modal -- replaces window.prompt() for anything that collects a
+   written reason. Suggested messages are optional shortcuts, not a
+   fixed vocabulary: clicking one fills the textarea, which stays fully
+   editable either way.
+   ------------------------------------------------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 10, 10, 0.72);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s var(--ease);
+}
+.modal-overlay.visible { opacity: 1; pointer-events: auto; }
+
+.modal-box {
+  width: 100%;
+  max-width: 420px;
+  padding: 26px 26px 22px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.85);
+}
+
+.modal-box-title {
+  margin: 0 0 16px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.suggestion-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.suggestion-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-family: var(--font-body);
+  text-align: left;
+  transition: border-color 0.15s var(--ease), color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.suggestion-chip:hover { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+
+.reason-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--text);
+  font-family: var(--font-body);
+  resize: vertical;
+  min-height: 76px;
+  transition: border-color 0.15s var(--ease);
+}
+.reason-input:focus { outline: none; border-color: var(--accent); }
+.reason-input::placeholder { color: var(--text-faint); }
+
+.modal-box-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* User messages -------------------------------------------------------- */
+
+.message-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-height: 320px;
+  max-height: 58vh;
+  overflow-y: auto;
+  margin-bottom: 14px;
+}
+
+.message-bubble-row {
+  display: flex;
+}
+.message-bubble-row.from-support { justify-content: flex-end; }
+.message-bubble-row.from-user { justify-content: flex-start; }
+
+.message-bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.message-bubble.from-support {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.message-bubble.from-user {
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+.message-bubble-time {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.message-reply-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.message-reply-form textarea {
+  flex: 1;
+  resize: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 10px 12px;
+}
+.message-reply-form textarea:focus { outline: none; border-color: var(--border-strong); }
+
+.message-inbox-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+.message-inbox-row:hover { border-color: var(--border-strong); }
+
+@media (max-width: 800px) {
+  .shell { flex-direction: column; }
+  .sidebar { width: 100%; flex-direction: row; align-items: center; overflow-x: auto; padding: 14px 16px; }
+  .sidebar-header, .sidebar-footer { display: none; }
+  .nav { flex-direction: row; padding: 0; }
+  .nav-link.active::before { left: 0; right: 0; top: auto; bottom: -6px; height: 3px; width: auto; }
+  .content { padding: 28px 20px; }
+}

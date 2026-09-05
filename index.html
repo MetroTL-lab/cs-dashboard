@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CS-MetroTransit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="/images/favicon.svg" type="image/png">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <span class="wordmark">Metro<span class="wordmark-accent">Transit</span> <span class="wordmark-suffix">Customer Support</span></span>
+      </header>
+      <nav class="nav" aria-label="Sections">
+        <button class="nav-link active" data-panel="overview" aria-current="page">Overview</button>
+        <button class="nav-link" data-panel="applications">
+          Applications <span class="nav-badge" id="badge-applications" hidden></span>
+        </button>
+        <button class="nav-link" data-panel="flagged">
+          Flagged products <span class="nav-badge" id="badge-flagged" hidden></span>
+        </button>
+        <button class="nav-link" data-panel="sellers">Sellers &amp; stores</button>
+        <button class="nav-link" data-panel="reports">
+          Customer reports <span class="nav-badge" id="badge-reports" hidden></span>
+        </button>
+        <button class="nav-link" data-panel="messages">
+          Customer messages <span class="nav-badge" id="badge-messages" hidden></span>
+        </button>
+        <button class="nav-link" data-panel="search">Search</button>
+      </nav>
+      <footer class="sidebar-footer">
+        <button class="nav-signout" id="signout-btn">Sign out</button>
+      </footer>
+    </aside>
+
+    <main class="content">
+      <!-- Overview -->
+      <section class="panel-section active" id="panel-overview">
+        <div class="panel-header">
+          <h1>Overview</h1>
+          <p class="panel-lede">Where things stand right now across applications, moderation, and stores.</p>
+        </div>
+        <dl class="stat-grid" id="stat-grid">
+          <button type="button" class="stat-card stat-card--urgent" data-panel="applications"><dd class="stat-value" id="stat-pending">—</dd><dt class="stat-label">Pending applications</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="flagged"><dd class="stat-value" id="stat-flagged">—</dd><dt class="stat-label">Flagged products</dt></button>
+          <button type="button" class="stat-card" data-panel="sellers"><dd class="stat-value" id="stat-stores">—</dd><dt class="stat-label">Stores</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="reports"><dd class="stat-value" id="stat-reports">—</dd><dt class="stat-label">Customer reports</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="messages"><dd class="stat-value" id="stat-messages">—</dd><dt class="stat-label">Unread messages</dt></button>
+          <div class="stat-card"><dd class="stat-value" id="stat-products">—</dd><dt class="stat-label">Active listings</dt></div>
+        </dl>
+      </section>
+
+      <!-- Applications -->
+      <section class="panel-section" id="panel-applications">
+        <div class="panel-header">
+          <h1>Pending applications</h1>
+          <p class="panel-lede">Review the certificate before approving.</p>
+        </div>
+        <div id="applications-list" class="list"></div>
+        <p class="empty-state" id="applications-empty" hidden>No pending applications right now.</p>
+        <button type="button" class="btn-secondary load-more-btn" id="applications-load-more" hidden>Load more</button>
+      </section>
+
+      <!-- Flagged products -->
+      <section class="panel-section" id="panel-flagged">
+        <div class="panel-header">
+          <h1>Flagged products</h1>
+          <p class="panel-lede">Warned, under appeal, or taken down.</p>
+        </div>
+        <div class="list-controls">
+          <label for="flagged-filter" class="sr-only">Filter by status</label>
+          <select id="flagged-filter" class="filter-select">
+            <option value="all">All statuses</option>
+            <option value="warned">Warned</option>
+            <option value="appeal_pending">Appeal pending</option>
+            <option value="taken_down">Taken down</option>
+          </select>
+        </div>
+        <div id="flagged-list" class="list"></div>
+        <p class="empty-state" id="flagged-empty" hidden>Nothing currently flagged.</p>
+        <button type="button" class="btn-secondary load-more-btn" id="flagged-load-more" hidden>Load more</button>
+      </section>
+
+      <!-- Sellers & stores -->
+      <section class="panel-section" id="panel-sellers">
+        <div class="panel-header">
+          <h1>Sellers &amp; stores</h1>
+          <p class="panel-lede">Click a store to see its products.</p>
+        </div>
+        <div class="list-controls">
+          <label for="sellers-filter" class="sr-only">Filter by status</label>
+          <select id="sellers-filter" class="filter-select">
+            <option value="all">All stores</option>
+            <option value="active">Active</option>
+            <option value="inactive">Deactivated</option>
+          </select>
+          <label for="sellers-sort" class="sr-only">Sort by</label>
+          <select id="sellers-sort" class="filter-select">
+            <option value="store_name">Name (A–Z)</option>
+            <option value="flagged_desc">Most flagged</option>
+            <option value="listings_desc">Most listings</option>
+          </select>
+        </div>
+        <div id="sellers-list" class="list"></div>
+        <p class="empty-state" id="sellers-empty" hidden>No stores yet.</p>
+        <button type="button" class="btn-secondary load-more-btn" id="sellers-load-more" hidden>Load more</button>
+      </section>
+
+      <!-- Store detail -->
+      <section class="panel-section" id="panel-store-detail">
+        <button class="btn-secondary back-link" id="store-detail-back">&larr; Back to Sellers &amp; stores</button>
+        <div class="panel-header">
+          <h1 id="store-detail-title">Store</h1>
+          <p class="panel-lede" id="store-detail-subtitle"></p>
+        </div>
+        <div id="store-detail-list" class="list"></div>
+        <p class="empty-state" id="store-detail-empty" hidden>This store has no products yet.</p>
+      </section>
+
+      <!-- Customer reports -->
+      <section class="panel-section" id="panel-reports">
+        <div class="panel-header">
+          <h1>Customer reports</h1>
+          <p class="panel-lede">Reports customers have submitted about a product or store.</p>
+        </div>
+        <div class="list-controls">
+          <label for="reports-filter" class="sr-only">Filter by type</label>
+          <select id="reports-filter" class="filter-select">
+            <option value="all">All reports</option>
+            <option value="product">Product reports</option>
+            <option value="store">Store reports</option>
+          </select>
+        </div>
+        <div id="reports-list" class="list"></div>
+        <p class="empty-state" id="reports-empty" hidden>No reports yet.</p>
+        <button type="button" class="btn-secondary load-more-btn" id="reports-load-more" hidden>Load more</button>
+      </section>
+
+      <!-- Customer messages -->
+      <section class="panel-section" id="panel-messages">
+        <div class="panel-header">
+          <h1>Customer messages</h1>
+          <p class="panel-lede">Support chat — click a Customer to read and reply.</p>
+        </div>
+        <div id="messages-list" class="list"></div>
+        <p class="empty-state" id="messages-empty" hidden>No support conversations yet.</p>
+      </section>
+
+      <!-- Message thread -->
+      <section class="panel-section" id="panel-message-thread">
+        <button class="btn-secondary back-link" id="message-thread-back">&larr; Back to Customer messages</button>
+        <div class="panel-header">
+          <h1 id="message-thread-title">Customer</h1>
+          <p class="panel-lede" id="message-thread-subtitle"></p>
+        </div>
+        <div id="message-thread-list" class="message-thread"></div>
+        <form id="message-reply-form" class="message-reply-form">
+          <label for="message-reply-input" class="sr-only">Reply</label>
+          <textarea id="message-reply-input" rows="2" placeholder="Reply as Support…" required></textarea>
+          <button type="submit" class="btn-primary">Send</button>
+        </form>
+      </section>
+
+      <!-- Search -->
+      <section class="panel-section" id="panel-search">
+        <div class="panel-header">
+          <h1>Search stores and products</h1>
+          <p class="panel-lede">Find a pending application, a store to view its products, or a product to flag or remove directly.</p>
+        </div>
+        <form id="search-form" class="search-form">
+          <label for="search-input" class="sr-only">Search by store or product name</label>
+          <input type="text" id="search-input" placeholder="Search by business, store, or product name…" autocomplete="off" />
+          <button type="submit" class="btn-primary">Search</button>
+        </form>
+        <h2 class="search-subheading" id="search-applications-heading" hidden>Applications</h2>
+        <div id="search-applications-list" class="list"></div>
+        <h2 class="search-subheading" id="search-stores-heading" hidden>Stores</h2>
+        <div id="search-stores-list" class="list"></div>
+        <h2 class="search-subheading" id="search-products-heading" hidden>Products</h2>
+        <div id="search-list" class="list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-modal" role="status" aria-live="polite">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p class="loading-message" id="loading-message">Loading…</p>
+    </div>
+  </div>
+
+  <!-- Reason modal: replaces window.prompt() everywhere a written reason
+       is needed. Suggested messages are just shortcuts -- clicking one
+       fills the textarea, which stays fully editable either way. -->
+  <div class="modal-overlay" id="reason-overlay">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="reason-title">
+      <p class="modal-box-title" id="reason-title"></p>
+      <div class="suggestion-list" id="reason-suggestions"></div>
+      <label for="reason-input" class="sr-only">Reason</label>
+      <textarea id="reason-input" class="reason-input" rows="3" placeholder="Type a reason…"></textarea>
+      <div class="modal-box-actions">
+        <button type="button" class="btn-secondary" id="reason-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="reason-submit">Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
