@@ -294,20 +294,18 @@ async function rejectApplication(app) {
  *  (migration 0060) already permits this.
  */
 async function linkApplicationToUser(app) {
-  const email = window.prompt(`Link "${app.business_name}" to the app account with this email:`, app.email);
-  if (!email) return;
+  const phone = window.prompt(`Link "${app.business_name}" to the app account with this phone number:`, app.phone);
+  if (!phone) return;
 
   showLoading('Linking application…');
   try {
-    const { data: profile, error: lookupError } = await client
-      .from('profiles')
-      .select('id')
-      .eq('email', email.trim())
-      .maybeSingle();
+    const { data: userId, error: lookupError } = await client.rpc('find_profile_id_by_phone', {
+      p_phone: phone.trim(),
+    });
     if (lookupError) return showToast(lookupError.message, true);
-    if (!profile) return showToast(`No app account found with email ${email}.`, true);
+    if (!userId) return showToast(`No app account found with phone ${phone}.`, true);
 
-    const { error } = await client.from('seller_applications').update({ user_id: profile.id }).eq('id', app.application_id);
+    const { error } = await client.from('seller_applications').update({ user_id: userId }).eq('id', app.application_id);
     if (error) return showToast(error.message, true);
 
     showToast('Linked.');
@@ -359,7 +357,7 @@ function applicationCard(app) {
     <p class="card-meta">Applied ${formatDate(app.created_at)}</p>
     <div class="card-actions">
       ${documentButtons}
-      ${app.user_id ? '' : '<button class="btn-secondary" data-action="link">Link to user by email</button>'}
+      ${app.user_id ? '' : '<button class="btn-secondary" data-action="link">Link to user by phone</button>'}
       <button class="btn-primary" data-action="approve">Approve</button>
       <button class="btn-danger" data-action="reject">Reject</button>
     </div>
