@@ -22,7 +22,7 @@
 
   --radius: 12px;
   --radius-sm: 8px;
-  --font-display: Arial, "Inter", sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
@@ -72,6 +72,7 @@ html, body {
   color: var(--text);
   display: inline-flex;
   align-items: center;
+  gap: 10px;
 }
 .wordmark::before {
   content: "";
@@ -81,10 +82,9 @@ html, body {
   background: var(--accent);
   flex-shrink: 0;
   border-radius: 1px;
-  margin-right: 10px;
 }
 .wordmark-accent { color: var(--accent); }
-.wordmark-suffix { color: var(--text-faint); font-family: var(--font-body); font-size: 12.5px; font-weight: 500; margin-left: 10px;}
+.wordmark-suffix { color: var(--text-faint); font-family: var(--font-body); font-size: 12.5px; font-weight: 500; }
 
 h1 {
   font-family: var(--font-display);

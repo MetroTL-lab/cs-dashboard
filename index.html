@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CS-MetroTransit</title>
+  <title>Admin — MetroTransit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <link rel="icon" href="/images/favicon.svg" type="image/png">
+  <link rel="icon" type="image/png" href="applogo_icon.png" />
 </head>
 <body>
   <div class="shell">
     <aside class="sidebar">
       <header class="sidebar-header">
-        <span class="wordmark">Metro<span class="wordmark-accent">Transit</span> <span class="wordmark-suffix">Customer Support</span></span>
+        <span class="wordmark">Metro<span class="wordmark-accent">Transit</span> <span class="wordmark-suffix">Admin</span></span>
       </header>
       <nav class="nav" aria-label="Sections">
         <button class="nav-link active" data-panel="overview" aria-current="page">Overview</button>
@@ -26,10 +26,10 @@
         </button>
         <button class="nav-link" data-panel="sellers">Sellers &amp; stores</button>
         <button class="nav-link" data-panel="reports">
-          Customer reports <span class="nav-badge" id="badge-reports" hidden></span>
+          User reports <span class="nav-badge" id="badge-reports" hidden></span>
         </button>
         <button class="nav-link" data-panel="messages">
-          Customer messages <span class="nav-badge" id="badge-messages" hidden></span>
+          User messages <span class="nav-badge" id="badge-messages" hidden></span>
         </button>
         <button class="nav-link" data-panel="search">Search</button>
       </nav>
@@ -49,7 +49,7 @@
           <button type="button" class="stat-card stat-card--urgent" data-panel="applications"><dd class="stat-value" id="stat-pending">—</dd><dt class="stat-label">Pending applications</dt></button>
           <button type="button" class="stat-card stat-card--urgent" data-panel="flagged"><dd class="stat-value" id="stat-flagged">—</dd><dt class="stat-label">Flagged products</dt></button>
           <button type="button" class="stat-card" data-panel="sellers"><dd class="stat-value" id="stat-stores">—</dd><dt class="stat-label">Stores</dt></button>
-          <button type="button" class="stat-card stat-card--urgent" data-panel="reports"><dd class="stat-value" id="stat-reports">—</dd><dt class="stat-label">Customer reports</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="reports"><dd class="stat-value" id="stat-reports">—</dd><dt class="stat-label">User reports</dt></button>
           <button type="button" class="stat-card stat-card--urgent" data-panel="messages"><dd class="stat-value" id="stat-messages">—</dd><dt class="stat-label">Unread messages</dt></button>
           <div class="stat-card"><dd class="stat-value" id="stat-products">—</dd><dt class="stat-label">Active listings</dt></div>
         </dl>
@@ -122,10 +122,10 @@
         <p class="empty-state" id="store-detail-empty" hidden>This store has no products yet.</p>
       </section>
 
-      <!-- Customer reports -->
+      <!-- User reports -->
       <section class="panel-section" id="panel-reports">
         <div class="panel-header">
-          <h1>Customer reports</h1>
+          <h1>User reports</h1>
           <p class="panel-lede">Reports customers have submitted about a product or store.</p>
         </div>
         <div class="list-controls">
@@ -141,11 +141,11 @@
         <button type="button" class="btn-secondary load-more-btn" id="reports-load-more" hidden>Load more</button>
       </section>
 
-      <!-- Customer messages -->
+      <!-- User messages -->
       <section class="panel-section" id="panel-messages">
         <div class="panel-header">
-          <h1>Customer messages</h1>
-          <p class="panel-lede">Support chat — click a Customer to read and reply.</p>
+          <h1>User messages</h1>
+          <p class="panel-lede">Support chat — click a user to read and reply.</p>
         </div>
         <div id="messages-list" class="list"></div>
         <p class="empty-state" id="messages-empty" hidden>No support conversations yet.</p>
@@ -153,9 +153,9 @@
 
       <!-- Message thread -->
       <section class="panel-section" id="panel-message-thread">
-        <button class="btn-secondary back-link" id="message-thread-back">&larr; Back to Customer messages</button>
+        <button class="btn-secondary back-link" id="message-thread-back">&larr; Back to User messages</button>
         <div class="panel-header">
-          <h1 id="message-thread-title">Customer</h1>
+          <h1 id="message-thread-title">User</h1>
           <p class="panel-lede" id="message-thread-subtitle"></p>
         </div>
         <div id="message-thread-list" class="message-thread"></div>
