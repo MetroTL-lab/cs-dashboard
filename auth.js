@@ -26,6 +26,15 @@ function hideLoading() {
 // file.
 const client = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
+// Set by requireAdminSession() once the signed-in user is confirmed to
+// be in the admins table — dashboard.js reads this via getAdminRole()
+// to decide which panels/actions to show. One of 'customer_experience',
+// 'merchant_success', or 'superuser' (migration 0071).
+let _adminRole = null;
+function getAdminRole() {
+  return _adminRole;
+}
+
 /**
  * Confirms there's a live session AND that the session's user is in the
  * admins table. Returns the session on success; otherwise redirects to
@@ -50,6 +59,7 @@ async function requireAdminSession() {
     window.location.href = 'login.html?error=not_admin';
     return null;
   }
+  _adminRole = adminRow.role;
   return session;
 }
 

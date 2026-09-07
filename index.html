@@ -32,8 +32,10 @@
           User messages <span class="nav-badge" id="badge-messages" hidden></span>
         </button>
         <button class="nav-link" data-panel="search">Search</button>
+        <button class="nav-link" data-panel="superuser" id="nav-superuser">Superuser tools</button>
       </nav>
       <footer class="sidebar-footer">
+        <p class="role-badge" id="role-badge" hidden></p>
         <button class="nav-signout" id="signout-btn">Sign out</button>
       </footer>
     </aside>
@@ -46,11 +48,11 @@
           <p class="panel-lede">Where things stand right now across applications, moderation, and stores.</p>
         </div>
         <dl class="stat-grid" id="stat-grid">
-          <button type="button" class="stat-card stat-card--urgent" data-panel="applications"><dd class="stat-value" id="stat-pending">—</dd><dt class="stat-label">Pending applications</dt></button>
-          <button type="button" class="stat-card stat-card--urgent" data-panel="flagged"><dd class="stat-value" id="stat-flagged">—</dd><dt class="stat-label">Flagged products</dt></button>
-          <button type="button" class="stat-card" data-panel="sellers"><dd class="stat-value" id="stat-stores">—</dd><dt class="stat-label">Stores</dt></button>
-          <button type="button" class="stat-card stat-card--urgent" data-panel="reports"><dd class="stat-value" id="stat-reports">—</dd><dt class="stat-label">User reports</dt></button>
-          <button type="button" class="stat-card stat-card--urgent" data-panel="messages"><dd class="stat-value" id="stat-messages">—</dd><dt class="stat-label">Unread messages</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="applications" id="stat-card-applications"><dd class="stat-value" id="stat-pending">—</dd><dt class="stat-label">Pending applications</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="flagged" id="stat-card-flagged"><dd class="stat-value" id="stat-flagged">—</dd><dt class="stat-label">Flagged products</dt></button>
+          <button type="button" class="stat-card" data-panel="sellers" id="stat-card-sellers"><dd class="stat-value" id="stat-stores">—</dd><dt class="stat-label">Stores</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="reports" id="stat-card-reports"><dd class="stat-value" id="stat-reports">—</dd><dt class="stat-label">User reports</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="messages" id="stat-card-messages"><dd class="stat-value" id="stat-messages">—</dd><dt class="stat-label">Unread messages</dt></button>
           <div class="stat-card"><dd class="stat-value" id="stat-products">—</dd><dt class="stat-label">Active listings</dt></div>
         </dl>
       </section>
@@ -118,6 +120,11 @@
           <h1 id="store-detail-title">Store</h1>
           <p class="panel-lede" id="store-detail-subtitle"></p>
         </div>
+        <div class="list-controls" id="store-detail-superuser-controls" hidden>
+          <button type="button" class="btn-secondary" id="store-detail-edit-profile">Edit owner profile</button>
+          <button type="button" class="btn-secondary" id="store-detail-edit-store">Edit store</button>
+          <button type="button" class="btn-primary" id="store-detail-add-listing">Add listing</button>
+        </div>
         <div id="store-detail-list" class="list"></div>
         <p class="empty-state" id="store-detail-empty" hidden>This store has no products yet.</p>
       </section>
@@ -160,9 +167,14 @@
         </div>
         <div id="message-thread-list" class="message-thread"></div>
         <form id="message-reply-form" class="message-reply-form">
-          <label for="message-reply-input" class="sr-only">Reply</label>
-          <textarea id="message-reply-input" rows="2" placeholder="Reply as Support…" required></textarea>
-          <button type="submit" class="btn-primary">Send</button>
+          <div class="message-reply-attachment-preview photo-preview" id="message-reply-attachment-preview"></div>
+          <div class="message-reply-row">
+            <input type="file" accept="image/*" id="message-reply-attachment-input" hidden />
+            <button type="button" class="message-reply-attach-btn" id="message-reply-attach-btn" title="Attach a photo">📎</button>
+            <label for="message-reply-input" class="sr-only">Reply</label>
+            <textarea id="message-reply-input" rows="2" placeholder="Reply as Support…"></textarea>
+            <button type="submit" class="btn-primary">Send</button>
+          </div>
         </form>
       </section>
 
@@ -183,6 +195,20 @@
         <div id="search-stores-list" class="list"></div>
         <h2 class="search-subheading" id="search-products-heading" hidden>Products</h2>
         <div id="search-list" class="list"></div>
+      </section>
+
+      <!-- Superuser tools -->
+      <section class="panel-section" id="panel-superuser">
+        <div class="panel-header">
+          <h1>Superuser tools</h1>
+          <p class="panel-lede">Look up any app account by phone number to edit their profile, create a store on their behalf, or delete their account.</p>
+        </div>
+        <form id="user-lookup-form" class="search-form">
+          <label for="user-lookup-input" class="sr-only">Phone number</label>
+          <input type="text" id="user-lookup-input" placeholder="Look up by phone number…" autocomplete="off" />
+          <button type="submit" class="btn-primary">Look up</button>
+        </form>
+        <div id="user-lookup-result"></div>
       </section>
     </main>
   </div>
@@ -208,6 +234,179 @@
       <div class="modal-box-actions">
         <button type="button" class="btn-secondary" id="reason-cancel">Cancel</button>
         <button type="button" class="btn-primary" id="reason-submit">Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profile edit modal: superuser-only, edits a profiles row directly
+       (name / email / phone / avatar) — used both from Superuser tools'
+       user lookup and from a store's "Edit owner profile" button. This
+       is the PERSON's profile — see store-form-overlay below for the
+       store/merchant's own business profile. -->
+  <div class="modal-overlay" id="profile-edit-overlay">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="profile-edit-title">
+      <p class="modal-box-title" id="profile-edit-title">Edit profile</p>
+
+      <label class="field-label">Photo</label>
+      <div class="photo-picker" id="profile-edit-photo-picker">
+        <div class="photo-preview photo-preview--round" id="profile-edit-photo-preview"></div>
+        <input type="file" accept="image/*" id="profile-edit-photo-input" hidden />
+        <button type="button" class="btn-secondary" id="profile-edit-photo-btn">Choose photo</button>
+      </div>
+
+      <label for="profile-edit-first-name" class="field-label">First name</label>
+      <input type="text" id="profile-edit-first-name" class="field-input" />
+      <label for="profile-edit-last-name" class="field-label">Last name</label>
+      <input type="text" id="profile-edit-last-name" class="field-input" />
+      <label for="profile-edit-email" class="field-label">Email</label>
+      <input type="email" id="profile-edit-email" class="field-input" />
+      <label for="profile-edit-phone" class="field-label">Phone</label>
+      <input type="text" id="profile-edit-phone" class="field-input" />
+      <p class="field-note">Editing phone here writes it directly — it does not re-trigger OTP verification.</p>
+      <div class="modal-box-actions">
+        <button type="button" class="btn-secondary" id="profile-edit-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="profile-edit-submit">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Store form modal: superuser-only, shared by both "Create a store
+       for user" (Superuser tools) and "Edit store" (Store detail) —
+       storeFormOverlay() in dashboard.js relabels the title/submit
+       button and pre-fills fields depending on which. This is the
+       STORE's own business profile (name, logo, cuisine, etc.) — see
+       profile-edit-overlay above for the owner's personal profile. -->
+  <div class="modal-overlay" id="store-form-overlay">
+    <div class="modal-box modal-box--wide" role="dialog" aria-modal="true" aria-labelledby="store-form-title">
+      <p class="modal-box-title" id="store-form-title">Create a store</p>
+
+      <label class="field-label">Logo</label>
+      <div class="photo-picker" id="store-form-photo-picker">
+        <div class="photo-preview" id="store-form-photo-preview"></div>
+        <input type="file" accept="image/*" id="store-form-photo-input" hidden />
+        <button type="button" class="btn-secondary" id="store-form-photo-btn">Choose photo</button>
+      </div>
+
+      <label for="store-form-name" class="field-label">Store name</label>
+      <input type="text" id="store-form-name" class="field-input" />
+      <label for="store-form-type" class="field-label">Store type</label>
+      <select id="store-form-type" class="field-input">
+        <option value="restaurant">Restaurant</option>
+        <option value="supermarket">Supermarket</option>
+      </select>
+      <label for="store-form-description" class="field-label">Description</label>
+      <textarea id="store-form-description" class="field-input" rows="2"></textarea>
+
+      <div class="field-row">
+        <div>
+          <label for="store-form-address" class="field-label">Address</label>
+          <input type="text" id="store-form-address" class="field-input" />
+        </div>
+        <div>
+          <label for="store-form-landmark" class="field-label">Landmark</label>
+          <input type="text" id="store-form-landmark" class="field-input" />
+        </div>
+      </div>
+      <div class="field-row field-row--three">
+        <div>
+          <label for="store-form-city" class="field-label">City</label>
+          <input type="text" id="store-form-city" class="field-input" />
+        </div>
+        <div>
+          <label for="store-form-state" class="field-label">State</label>
+          <input type="text" id="store-form-state" class="field-input" />
+        </div>
+        <div>
+          <label for="store-form-postal-code" class="field-label">Postal code</label>
+          <input type="text" id="store-form-postal-code" class="field-input" />
+        </div>
+      </div>
+
+      <label for="store-form-cuisine" class="field-label">Cuisine / category label</label>
+      <input type="text" id="store-form-cuisine" class="field-input" placeholder="e.g. Nigerian, Fast food, Groceries" />
+      <div class="field-row">
+        <div>
+          <label for="store-form-price-tier" class="field-label">Price tier</label>
+          <select id="store-form-price-tier" class="field-input">
+            <option value="">Not set</option>
+            <option value="1">$ — Budget</option>
+            <option value="2">$$ — Moderate</option>
+            <option value="3">$$$ — Expensive</option>
+          </select>
+        </div>
+        <div>
+          <label for="store-form-delivery-fee" class="field-label">Delivery fee (₦, blank/0 = free)</label>
+          <input type="number" id="store-form-delivery-fee" class="field-input" min="0" step="0.01" />
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label for="store-form-prep-min" class="field-label">Prep time min (minutes)</label>
+          <input type="number" id="store-form-prep-min" class="field-input" min="0" step="1" />
+        </div>
+        <div>
+          <label for="store-form-prep-max" class="field-label">Prep time max (minutes)</label>
+          <input type="number" id="store-form-prep-max" class="field-input" min="0" step="1" />
+        </div>
+      </div>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="store-form-verified" />
+        Verified badge
+      </label>
+
+      <div class="modal-box-actions">
+        <button type="button" class="btn-secondary" id="store-form-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="store-form-submit">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create listing modal: superuser-only, inserts a product for
+       whichever store is currently open in Store detail. Mirrors every
+       field the real Create Listing screen in the app collects
+       (create_listing_controller.dart), including photos. -->
+  <div class="modal-overlay" id="create-listing-overlay">
+    <div class="modal-box modal-box--wide" role="dialog" aria-modal="true" aria-labelledby="create-listing-title">
+      <p class="modal-box-title" id="create-listing-title">Add a listing</p>
+
+      <label class="field-label">Photos</label>
+      <div class="photo-picker" id="create-listing-photo-picker">
+        <div class="photo-preview photo-preview--multi" id="create-listing-photo-preview"></div>
+        <input type="file" accept="image/*" multiple id="create-listing-photo-input" hidden />
+        <button type="button" class="btn-secondary" id="create-listing-photo-btn">Add photos</button>
+      </div>
+
+      <label for="create-listing-name" class="field-label">Title</label>
+      <input type="text" id="create-listing-name" class="field-input" />
+      <label for="create-listing-description" class="field-label">Description</label>
+      <textarea id="create-listing-description" class="field-input" rows="2"></textarea>
+      <div class="field-row">
+        <div>
+          <label for="create-listing-price" class="field-label">Price (₦)</label>
+          <input type="number" id="create-listing-price" class="field-input" min="0" step="0.01" />
+        </div>
+        <div>
+          <label for="create-listing-stock" class="field-label">Stock</label>
+          <input type="number" id="create-listing-stock" class="field-input" min="0" step="1" value="0" />
+        </div>
+      </div>
+      <label for="create-listing-category" class="field-label">Category *</label>
+      <input type="text" id="create-listing-category" class="field-input" />
+      <div class="field-row">
+        <div>
+          <label for="create-listing-pickup-address" class="field-label">Pickup address (optional)</label>
+          <input type="text" id="create-listing-pickup-address" class="field-input" />
+        </div>
+        <div>
+          <label for="create-listing-pickup-landmark" class="field-label">Pickup landmark (optional)</label>
+          <input type="text" id="create-listing-pickup-landmark" class="field-input" />
+        </div>
+      </div>
+
+      <div class="modal-box-actions">
+        <button type="button" class="btn-secondary" id="create-listing-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="create-listing-submit">Create</button>
       </div>
     </div>
   </div>

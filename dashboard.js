@@ -767,6 +767,7 @@ async function deleteSellerAccount(store) {
 function sellerCard(store) {
   const card = document.createElement('div');
   card.className = 'card';
+  const isSuperuser = getAdminRole() === 'superuser';
   const statusLabel = store.store_is_active ? 'Active' : (store.appeal_pending ? 'Appeal pending' : 'Deactivated');
   const statusClass = store.store_is_active ? 'status-active' : (store.appeal_pending ? 'status-appeal_pending' : 'status-inactive');
   const appealNote = store.store_is_active
@@ -788,14 +789,14 @@ function sellerCard(store) {
     ${store.deactivation_reason ? `<p class="card-notice">${escapeHtml(store.deactivation_reason)}</p>` : ''}
     <div class="card-actions">
       <button class="btn-secondary" data-action="view">View products</button>
-      ${store.appeal_pending ? '<button class="btn-primary" data-action="approve-appeal">Approve appeal</button><button class="btn-danger" data-action="deny-appeal">Deny appeal</button>' : ''}
-      <button class="btn-secondary" data-action="toggle">${store.store_is_active ? 'Deactivate store' : 'Reactivate store'}</button>
-      <button class="btn-danger" data-action="delete">Delete account</button>
+      ${isSuperuser && store.appeal_pending ? '<button class="btn-primary" data-action="approve-appeal">Approve appeal</button><button class="btn-danger" data-action="deny-appeal">Deny appeal</button>' : ''}
+      ${isSuperuser ? `<button class="btn-secondary" data-action="toggle">${store.store_is_active ? 'Deactivate store' : 'Reactivate store'}</button>` : ''}
+      ${isSuperuser ? '<button class="btn-danger" data-action="delete">Delete account</button>' : ''}
     </div>
   `;
   card.querySelectorAll('[data-action="view"]').forEach((el) => el.addEventListener('click', () => viewStoreDetail(store)));
-  card.querySelector('[data-action="toggle"]').addEventListener('click', () => toggleStoreActive(store));
-  card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteSellerAccount(store));
+  card.querySelector('[data-action="toggle"]')?.addEventListener('click', () => toggleStoreActive(store));
+  card.querySelector('[data-action="delete"]')?.addEventListener('click', () => deleteSellerAccount(store));
   card.querySelector('[data-action="approve-appeal"]')?.addEventListener('click', () => approveStoreAppeal(store));
   card.querySelector('[data-action="deny-appeal"]')?.addEventListener('click', () => denyStoreAppeal(store));
   return card;
@@ -847,6 +848,7 @@ let currentStoreDetail = null;
 function storeProductCard(p) {
   const card = document.createElement('div');
   card.className = 'card';
+  const isSuperuser = getAdminRole() === 'superuser';
   const notice = p.moderation_notice || p.takedown_reason;
   const status = p.moderation_status === 'active' && !p.is_active ? 'inactive' : p.moderation_status;
   card.innerHTML = `
@@ -855,10 +857,29 @@ function storeProductCard(p) {
       ${status !== 'active' ? `<span class="status-chip status-${status}">${status === 'inactive' ? 'Paused by seller' : (STATUS_LABEL[status] || status)}</span>` : ''}
     </div>
     ${notice ? `<p class="card-notice">${escapeHtml(notice)}</p>` : ''}
-    <div class="card-actions">${moderationActionsHtml(p.moderation_status)}</div>
+    <div class="card-actions">
+      ${moderationActionsHtml(p.moderation_status)}
+      ${isSuperuser ? '<button class="btn-danger" data-action="delete-listing">Delete listing</button>' : ''}
+    </div>
   `;
   wireModerationActions(card, p.id, () => viewStoreDetail(currentStoreDetail));
+  card.querySelector('[data-action="delete-listing"]')?.addEventListener('click', () => deleteListing(p));
   return card;
+}
+
+async function deleteListing(product) {
+  const confirmed = window.confirm(`Permanently delete "${product.title}"? This cannot be undone.`);
+  if (!confirmed) return;
+  showLoading('Deleting listing…');
+  try {
+    const { error } = await client.from('products').delete().eq('id', product.id);
+    if (error) return showToast(error.message, true);
+    showToast('Listing deleted.');
+    viewStoreDetail(currentStoreDetail);
+    loadOverview();
+  } finally {
+    hideLoading();
+  }
 }
 
 async function viewStoreDetail(store) {
@@ -867,6 +888,10 @@ async function viewStoreDetail(store) {
   document.getElementById('store-detail-title').textContent = store.store_name;
   document.getElementById('store-detail-subtitle').textContent =
     `${store.owner_name || 'Unnamed'} · ${store.owner_email || ''}`;
+
+  const isSuperuser = getAdminRole() === 'superuser';
+  const controls = document.getElementById('store-detail-superuser-controls');
+  controls.hidden = !isSuperuser;
 
   const list = document.getElementById('store-detail-list');
   const empty = document.getElementById('store-detail-empty');
@@ -903,10 +928,17 @@ let SUPPORT_ACCOUNT_ID = null;
 function messageInboxRow(convo) {
   const row = document.createElement('div');
   row.className = 'card message-inbox-row';
+  const preview = convo.last_message && convo.last_message.trim()
+    ? convo.last_message
+    : convo.last_message_attachment_type === 'image'
+      ? '📷 Photo'
+      : convo.last_message_attachment_type
+        ? '📎 Attachment'
+        : 'No messages yet';
   row.innerHTML = `
     <div>
       <p class="card-title">${escapeHtml(convo.user_name || convo.user_email || 'User')}</p>
-      <p class="card-subtitle">${escapeHtml(convo.last_message || 'No messages yet')}</p>
+      <p class="card-subtitle">${escapeHtml(preview)}</p>
     </div>
     <div style="text-align:right; flex-shrink:0;">
       <p class="card-meta">${convo.last_message_at ? formatDate(convo.last_message_at) : ''}</p>
@@ -935,24 +967,45 @@ async function loadUserMessages() {
   }
 }
 
+// Renders a message's attachment (if any) above its text, same layout
+// the app's own chat bubble uses — an image thumbnail (click to open
+// full-size in a new tab) for attachment_type 'image', or a small file
+// chip for anything else. A message can be attachment-only (empty
+// body — see conversation_screen.dart's _send(): "(body.isEmpty &&
+// !hasAttachment)" is the only thing that blocks sending), so the text
+// line is only rendered when body is non-empty.
 function messageBubble(message) {
   const isSupport = message.sender_id === SUPPORT_ACCOUNT_ID;
   const row = document.createElement('div');
   row.className = `message-bubble-row ${isSupport ? 'from-support' : 'from-user'}`;
   const bubble = document.createElement('div');
   bubble.className = `message-bubble ${isSupport ? 'from-support' : 'from-user'}`;
-  bubble.innerHTML = `${escapeHtml(message.body)}<span class="message-bubble-time">${formatDate(message.created_at)}</span>`;
+
+  let attachmentHtml = '';
+  if (message.attachment_url) {
+    attachmentHtml = message.attachment_type === 'image'
+      ? `<img src="${message.attachment_url}" alt="Attachment" class="message-bubble-image" data-action="open-attachment" />`
+      : `<a href="${message.attachment_url}" target="_blank" rel="noopener" class="message-bubble-file">📎 ${escapeHtml(message.attachment_name || 'Attachment')}</a>`;
+  }
+  const bodyHtml = message.body && message.body.trim() ? `<div>${escapeHtml(message.body)}</div>` : '';
+  bubble.innerHTML = `${attachmentHtml}${bodyHtml}<span class="message-bubble-time">${formatDate(message.created_at)}</span>`;
+  bubble.querySelector('[data-action="open-attachment"]')?.addEventListener('click', () => {
+    window.open(message.attachment_url, '_blank', 'noopener');
+  });
   row.appendChild(bubble);
   return row;
 }
 
 let currentThreadConversationId = null;
+let messageReplyPhotoPicker;
 
 async function openMessageThread(convo) {
   currentThreadConversationId = convo.conversation_id;
   activatePanel('message-thread', 'messages');
   document.getElementById('message-thread-title').textContent = convo.user_name || 'User';
   document.getElementById('message-thread-subtitle').textContent = convo.user_email || '';
+  document.getElementById('message-reply-input').value = '';
+  messageReplyPhotoPicker.reset(null);
 
   const list = document.getElementById('message-thread-list');
   list.innerHTML = '';
@@ -980,29 +1033,71 @@ async function openMessageThread(convo) {
   }
 }
 
+async function uploadChatAttachmentFile(file, conversationId) {
+  const fileBase64 = await fileToBase64(file);
+  const filename = `${Date.now()}_${(file.name || 'photo.jpg').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const { publicUrl } = await callFunction('upload-chat-attachment', {
+    conversationId,
+    fileBase64,
+    filename,
+    contentType: file.type || 'image/jpeg',
+  });
+  return publicUrl;
+}
+
 async function sendSupportReply(event) {
   event.preventDefault();
   const input = document.getElementById('message-reply-input');
   const body = input.value.trim();
-  if (!body || !currentThreadConversationId) return;
+  const attachmentEntry = messageReplyPhotoPicker.getEntries()[0];
+  if (!body && !attachmentEntry) return;
+  if (!currentThreadConversationId) return;
 
-  const { error } = await client.from('messages').insert({
-    conversation_id: currentThreadConversationId,
-    sender_id: SUPPORT_ACCOUNT_ID,
-    body,
-  });
-  if (error) {
-    showToast(error.message, true);
-    return;
+  showLoading(attachmentEntry ? 'Uploading photo…' : 'Sending…');
+  try {
+    const attachmentUrl = attachmentEntry
+      ? (attachmentEntry.file
+          ? await uploadChatAttachmentFile(attachmentEntry.file, currentThreadConversationId)
+          : attachmentEntry.existingUrl)
+      : null;
+
+    const { error } = await client.from('messages').insert({
+      conversation_id: currentThreadConversationId,
+      sender_id: SUPPORT_ACCOUNT_ID,
+      body,
+      attachment_url: attachmentUrl,
+      attachment_type: attachmentUrl ? 'image' : null,
+      attachment_name: attachmentUrl ? (attachmentEntry.file?.name || 'photo.jpg') : null,
+    });
+    if (error) return showToast(error.message, true);
+
+    input.value = '';
+    messageReplyPhotoPicker.reset(null);
+    const list = document.getElementById('message-thread-list');
+    list.appendChild(messageBubble({
+      sender_id: SUPPORT_ACCOUNT_ID,
+      body,
+      created_at: new Date().toISOString(),
+      attachment_url: attachmentUrl,
+      attachment_type: attachmentUrl ? 'image' : null,
+      attachment_name: attachmentUrl ? (attachmentEntry.file?.name || 'photo.jpg') : null,
+    }));
+    list.scrollTop = list.scrollHeight;
+    loadUserMessages();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    hideLoading();
   }
-  input.value = '';
-  const list = document.getElementById('message-thread-list');
-  list.appendChild(messageBubble({ sender_id: SUPPORT_ACCOUNT_ID, body, created_at: new Date().toISOString() }));
-  list.scrollTop = list.scrollHeight;
-  loadUserMessages();
 }
 
 function initMessages() {
+  messageReplyPhotoPicker = createPhotoPicker({
+    inputId: 'message-reply-attachment-input',
+    previewId: 'message-reply-attachment-preview',
+    btnId: 'message-reply-attach-btn',
+    multi: false,
+  });
   document.getElementById('message-reply-form').addEventListener('submit', sendSupportReply);
 }
 
@@ -1094,6 +1189,460 @@ function initSearch() {
   });
 }
 
+// --- Generic field modals (profile edit / create store / create listing) --
+// Same promise-based, resolve-to-null-on-cancel contract as askForReason
+// above, just reading from a fixed set of inputs per modal instead of
+// one shared textarea.
+
+function openFieldModal(overlayId, submitBtnId, cancelBtnId, collect) {
+  const overlay = document.getElementById(overlayId);
+  const submitBtn = document.getElementById(submitBtnId);
+  const cancelBtn = document.getElementById(cancelBtnId);
+
+  return new Promise((resolve) => {
+    function cleanup(result) {
+      overlay.classList.remove('visible');
+      submitBtn.removeEventListener('click', onSubmit);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('mousedown', onOverlayClick);
+      document.removeEventListener('keydown', onKeydown);
+      resolve(result);
+    }
+    function onSubmit() { cleanup(collect()); }
+    function onCancel() { cleanup(null); }
+    function onOverlayClick(e) { if (e.target === overlay) cleanup(null); }
+    function onKeydown(e) { if (e.key === 'Escape') cleanup(null); }
+
+    submitBtn.addEventListener('click', onSubmit);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('mousedown', onOverlayClick);
+    document.addEventListener('keydown', onKeydown);
+
+    overlay.classList.add('visible');
+  });
+}
+
+// --- Photo pickers ----------------------------------------------------
+// Every superuser form with a photo (profile avatar, store logo, listing
+// photos) shares this: a hidden <input type=file>, a preview area of
+// thumbnails, and a button that opens the file picker. Each entry is
+// either a freshly-picked File (not uploaded yet) or a pre-existing URL
+// (when editing something that already has a photo and it wasn't
+// touched) — resolvePhotoUrls() below turns a picker's current entries
+// into final uploaded URLs right before the calling function writes to
+// the DB, so nothing is uploaded until the form is actually submitted.
+function createPhotoPicker({ inputId, previewId, btnId, multi = false }) {
+  const input = document.getElementById(inputId);
+  const preview = document.getElementById(previewId);
+  const btn = document.getElementById(btnId);
+  let entries = []; // { file: File|null, previewUrl: string, existingUrl?: string }
+
+  function render() {
+    preview.innerHTML = '';
+    entries.forEach((entry, i) => {
+      const thumb = document.createElement('div');
+      thumb.className = 'photo-thumb';
+      thumb.innerHTML = `<img src="${entry.previewUrl}" alt="" /><span class="photo-thumb-remove" data-i="${i}">&times;</span>`;
+      thumb.querySelector('.photo-thumb-remove').addEventListener('click', () => {
+        entries.splice(i, 1);
+        render();
+      });
+      preview.appendChild(thumb);
+    });
+  }
+
+  btn.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => {
+    const picked = Array.from(input.files || []);
+    if (!multi) entries = [];
+    picked.forEach((file) => entries.push({ file, previewUrl: URL.createObjectURL(file) }));
+    input.value = '';
+    render();
+  });
+
+  return {
+    // existingUrl(s): a single URL string, an array of URLs, or null/undefined for empty.
+    reset(existingUrls) {
+      const urls = existingUrls == null ? [] : (Array.isArray(existingUrls) ? existingUrls : [existingUrls]);
+      entries = urls.filter(Boolean).map((url) => ({ file: null, previewUrl: url, existingUrl: url }));
+      render();
+    },
+    getEntries() { return entries; },
+  };
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = () => reject(reader.error || new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadImageFile(file) {
+  const imageBase64 = await fileToBase64(file);
+  const filename = `${Date.now()}_${(file.name || 'photo.jpg').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const { publicUrl } = await callFunction('upload-product-image', { imageBase64, filename });
+  return publicUrl;
+}
+
+// Turns a picker's current entries into an ordered array of final URLs,
+// uploading any freshly-picked files (existing ones are kept as-is).
+async function resolvePhotoUrls(picker) {
+  const urls = [];
+  for (const entry of picker.getEntries()) {
+    urls.push(entry.file ? await uploadImageFile(entry.file) : entry.existingUrl);
+  }
+  return urls;
+}
+
+let profileEditPhotoPicker;
+let storeFormPhotoPicker;
+let createListingPhotoPicker;
+
+function initPhotoPickers() {
+  profileEditPhotoPicker = createPhotoPicker({
+    inputId: 'profile-edit-photo-input',
+    previewId: 'profile-edit-photo-preview',
+    btnId: 'profile-edit-photo-btn',
+    multi: false,
+  });
+  storeFormPhotoPicker = createPhotoPicker({
+    inputId: 'store-form-photo-input',
+    previewId: 'store-form-photo-preview',
+    btnId: 'store-form-photo-btn',
+    multi: false,
+  });
+  createListingPhotoPicker = createPhotoPicker({
+    inputId: 'create-listing-photo-input',
+    previewId: 'create-listing-photo-preview',
+    btnId: 'create-listing-photo-btn',
+    multi: true,
+  });
+}
+
+// --- Field modals -------------------------------------------------------
+
+function openProfileEditModal(profile) {
+  document.getElementById('profile-edit-first-name').value = profile.first_name || '';
+  document.getElementById('profile-edit-last-name').value = profile.last_name || '';
+  document.getElementById('profile-edit-email').value = profile.email || '';
+  document.getElementById('profile-edit-phone').value = profile.phone || '';
+  profileEditPhotoPicker.reset(profile.avatar_url);
+  return openFieldModal('profile-edit-overlay', 'profile-edit-submit', 'profile-edit-cancel', () => ({
+    first_name: document.getElementById('profile-edit-first-name').value.trim(),
+    last_name: document.getElementById('profile-edit-last-name').value.trim(),
+    email: document.getElementById('profile-edit-email').value.trim(),
+    phone: document.getElementById('profile-edit-phone').value.trim(),
+  }));
+}
+
+// Shared by "Create a store for user" (Superuser tools) and "Edit store"
+// (Store detail) — same fields either way, just pre-filled or blank and
+// relabelled. `store` is the full stores row for edit, or null to create.
+function openStoreFormModal(mode, store) {
+  document.getElementById('store-form-title').textContent = mode === 'edit' ? 'Edit store' : 'Create a store';
+  document.getElementById('store-form-submit').textContent = mode === 'edit' ? 'Save' : 'Create';
+
+  document.getElementById('store-form-name').value = store?.name || '';
+  document.getElementById('store-form-type').value = store?.store_type || 'restaurant';
+  document.getElementById('store-form-description').value = store?.description || '';
+  document.getElementById('store-form-address').value = store?.address || '';
+  document.getElementById('store-form-landmark').value = store?.landmark || '';
+  document.getElementById('store-form-city').value = store?.city || '';
+  document.getElementById('store-form-state').value = store?.state || '';
+  document.getElementById('store-form-postal-code').value = store?.postal_code || '';
+  document.getElementById('store-form-cuisine').value = store?.cuisine || '';
+  document.getElementById('store-form-price-tier').value = store?.price_tier != null ? String(store.price_tier) : '';
+  document.getElementById('store-form-delivery-fee').value = store?.delivery_fee ?? '';
+  document.getElementById('store-form-prep-min').value = store?.prep_time_min_minutes ?? '';
+  document.getElementById('store-form-prep-max').value = store?.prep_time_max_minutes ?? '';
+  document.getElementById('store-form-verified').checked = !!store?.is_verified;
+  storeFormPhotoPicker.reset(store?.image_url || null);
+
+  return openFieldModal('store-form-overlay', 'store-form-submit', 'store-form-cancel', () => {
+    const priceTier = document.getElementById('store-form-price-tier').value;
+    const deliveryFee = document.getElementById('store-form-delivery-fee').value;
+    const prepMin = document.getElementById('store-form-prep-min').value;
+    const prepMax = document.getElementById('store-form-prep-max').value;
+    return {
+      name: document.getElementById('store-form-name').value.trim(),
+      store_type: document.getElementById('store-form-type').value,
+      description: document.getElementById('store-form-description').value.trim() || null,
+      address: document.getElementById('store-form-address').value.trim() || null,
+      landmark: document.getElementById('store-form-landmark').value.trim() || null,
+      city: document.getElementById('store-form-city').value.trim() || null,
+      state: document.getElementById('store-form-state').value.trim() || null,
+      postal_code: document.getElementById('store-form-postal-code').value.trim() || null,
+      cuisine: document.getElementById('store-form-cuisine').value.trim() || null,
+      price_tier: priceTier ? Number(priceTier) : null,
+      delivery_fee: deliveryFee ? Number(deliveryFee) : null,
+      prep_time_min_minutes: prepMin ? Number(prepMin) : null,
+      prep_time_max_minutes: prepMax ? Number(prepMax) : null,
+      is_verified: document.getElementById('store-form-verified').checked,
+    };
+  });
+}
+
+function openCreateListingModal() {
+  document.getElementById('create-listing-name').value = '';
+  document.getElementById('create-listing-description').value = '';
+  document.getElementById('create-listing-price').value = '';
+  document.getElementById('create-listing-category').value = '';
+  document.getElementById('create-listing-stock').value = '0';
+  document.getElementById('create-listing-pickup-address').value = '';
+  document.getElementById('create-listing-pickup-landmark').value = '';
+  createListingPhotoPicker.reset(null);
+  return openFieldModal('create-listing-overlay', 'create-listing-submit', 'create-listing-cancel', () => ({
+    title: document.getElementById('create-listing-name').value.trim(),
+    description: document.getElementById('create-listing-description').value.trim() || null,
+    price: parseFloat(document.getElementById('create-listing-price').value),
+    category: document.getElementById('create-listing-category').value.trim() || null,
+    stock: parseInt(document.getElementById('create-listing-stock').value, 10) || 0,
+    pickup_address: document.getElementById('create-listing-pickup-address').value.trim() || null,
+    pickup_landmark: document.getElementById('create-listing-pickup-landmark').value.trim() || null,
+  }));
+}
+
+// Shared by the store detail "Edit owner profile" button and Superuser
+// tools' user lookup -- both just need a profile id to edit. This is the
+// PERSON's own profile (first/last name, email, phone, avatar) — see
+// editStore() below for the store/merchant's own business profile.
+async function editProfile(profileId) {
+  const { data: profile, error: fetchError } = await client
+    .from('profiles')
+    .select('first_name, last_name, email, phone, avatar_url')
+    .eq('id', profileId)
+    .single();
+  if (fetchError) return showToast(fetchError.message, true);
+
+  const fields = await openProfileEditModal(profile);
+  if (!fields) return;
+  if (!fields.first_name) return showToast('Enter a first name.', true);
+
+  showLoading('Saving profile…');
+  try {
+    const avatarUrls = await resolvePhotoUrls(profileEditPhotoPicker);
+    const { error } = await client
+      .from('profiles')
+      .update({ ...fields, avatar_url: avatarUrls[0] || null })
+      .eq('id', profileId);
+    if (error) return showToast(error.message, true);
+    showToast('Profile updated.');
+    if (currentStoreDetail) loadSellers(true);
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    hideLoading();
+  }
+}
+
+async function createStoreForUser(ownerId) {
+  const fields = await openStoreFormModal('create', null);
+  if (!fields) return;
+  if (!fields.name) return showToast('Enter a store name.', true);
+
+  showLoading('Creating store…');
+  try {
+    const logoUrls = await resolvePhotoUrls(storeFormPhotoPicker);
+    const { error } = await client.from('stores').insert({
+      owner_id: ownerId,
+      image_url: logoUrls[0] || null,
+      is_active: true,
+      ...fields,
+    });
+    if (error) return showToast(error.message, true);
+    showToast('Store created.');
+    loadSellers(true);
+    loadOverview();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    hideLoading();
+  }
+}
+
+// This is the STORE's own business profile — name, logo, description,
+// address, cuisine/price-tier/prep-time/delivery-fee display attributes,
+// and the Verified badge (migration 0046 flagged is_verified as "not
+// seller-editable... follow-up if verification needs to be admin-gated" —
+// this is that follow-up). See editProfile() above for the owner's own
+// personal profile.
+async function editStore(storeOverview) {
+  const { data: store, error: fetchError } = await client
+    .from('stores')
+    .select('*')
+    .eq('id', storeOverview.store_id)
+    .single();
+  if (fetchError) return showToast(fetchError.message, true);
+
+  const fields = await openStoreFormModal('edit', store);
+  if (!fields) return;
+  if (!fields.name) return showToast('Enter a store name.', true);
+
+  showLoading('Saving store…');
+  try {
+    const logoUrls = await resolvePhotoUrls(storeFormPhotoPicker);
+    const { error } = await client
+      .from('stores')
+      .update({ ...fields, image_url: logoUrls[0] || null })
+      .eq('id', store.id);
+    if (error) return showToast(error.message, true);
+    showToast('Store updated.');
+    document.getElementById('store-detail-title').textContent = fields.name;
+    loadSellers(true);
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    hideLoading();
+  }
+}
+
+async function createListingForStore(store) {
+  const fields = await openCreateListingModal();
+  if (!fields) return;
+  if (!fields.title || !fields.category || !(fields.price >= 0)) {
+    return showToast('Enter a title, category, and a valid price.', true);
+  }
+
+  showLoading('Creating listing…');
+  try {
+    const imageUrls = await resolvePhotoUrls(createListingPhotoPicker);
+    const { error } = await client.from('products').insert({
+      seller_id: store.owner_id,
+      store_id: store.store_id,
+      image_urls: imageUrls,
+      ...fields,
+    });
+    if (error) return showToast(error.message, true);
+    showToast('Listing created.');
+    viewStoreDetail(store);
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    hideLoading();
+  }
+}
+
+// --- Superuser tools: look up any account by phone ------------------------
+
+function userLookupResultCard(profile) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const name = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.full_name || 'Unnamed';
+  card.innerHTML = `
+    <div class="card-title-row">
+      <div>
+        <p class="card-title">${escapeHtml(name)}</p>
+        <p class="card-subtitle">${escapeHtml(profile.email || '')} · ${escapeHtml(profile.phone || '')}</p>
+      </div>
+    </div>
+    <div class="card-actions">
+      <button class="btn-secondary" data-action="edit">Edit profile</button>
+      <button class="btn-primary" data-action="create-store">Create a store for this user</button>
+      <button class="btn-danger" data-action="delete">Delete account</button>
+    </div>
+  `;
+  card.querySelector('[data-action="edit"]').addEventListener('click', () => editProfile(profile.id));
+  card.querySelector('[data-action="create-store"]').addEventListener('click', () => createStoreForUser(profile.id));
+  card.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+    const confirmed = window.confirm(
+      `Delete ${name}'s account?\n\nThis permanently scrubs their personal data and blocks them from logging in. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    showLoading('Deleting account…');
+    try {
+      await callFunction('admin-delete-user', { targetUserId: profile.id });
+      showToast('Account deleted.');
+      document.getElementById('user-lookup-result').innerHTML = '';
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      hideLoading();
+    }
+  });
+  return card;
+}
+
+function initSuperuserTools() {
+  initPhotoPickers();
+
+  document.getElementById('store-detail-edit-profile').addEventListener('click', () => {
+    if (currentStoreDetail) editProfile(currentStoreDetail.owner_id);
+  });
+  document.getElementById('store-detail-edit-store').addEventListener('click', () => {
+    if (currentStoreDetail) editStore(currentStoreDetail);
+  });
+  document.getElementById('store-detail-add-listing').addEventListener('click', () => {
+    if (currentStoreDetail) createListingForStore(currentStoreDetail);
+  });
+
+  document.getElementById('user-lookup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('user-lookup-input');
+    const phone = input.value.trim();
+    if (!phone) return;
+    const resultEl = document.getElementById('user-lookup-result');
+    resultEl.innerHTML = '';
+
+    showLoading('Looking up account…');
+    try {
+      const { data: userId, error: lookupError } = await client.rpc('find_profile_id_by_phone', { p_phone: phone });
+      if (lookupError) return showToast(lookupError.message, true);
+      if (!userId) return showToast(`No app account found with phone ${phone}.`, true);
+
+      const { data: profile, error } = await client.from('profiles').select('*').eq('id', userId).single();
+      if (error) return showToast(error.message, true);
+      resultEl.appendChild(userLookupResultCard(profile));
+    } finally {
+      hideLoading();
+    }
+  });
+}
+
+// --- Role-based visibility --------------------------------------------
+// Team Roles & Contact Channels: Customer Experience handles direct
+// customer inquiries + live chat only (merchant issues get escalated to
+// Merchant Success, so this dashboard doesn't even show them those
+// panels); Merchant Success reviews/approves/rejects applications and
+// oversees merchant inventory, but not the customer-facing chat inbox;
+// Superuser sees everything, plus its own dedicated panel. Actions that
+// are ALSO narrower than "any admin" within a panel both roles can see
+// (e.g. Merchant Success can view a store's products but not deactivate
+// the whole store) are gated individually where they're rendered —
+// sellerCard(), storeProductCard(), viewStoreDetail() above.
+const PANEL_ROLE_ACCESS = {
+  applications: ['merchant_success', 'superuser'],
+  flagged: ['merchant_success', 'superuser'],
+  sellers: ['merchant_success', 'superuser'],
+  reports: ['merchant_success', 'superuser'],
+  messages: ['customer_experience', 'superuser'],
+  search: ['merchant_success', 'superuser'],
+  superuser: ['superuser'],
+};
+
+const ROLE_LABELS = {
+  customer_experience: 'Customer Experience',
+  merchant_success: 'Merchant Success',
+  superuser: 'Superuser',
+};
+
+function applyRoleVisibility(role) {
+  document.querySelectorAll('.nav-link[data-panel]').forEach((btn) => {
+    const allowed = PANEL_ROLE_ACCESS[btn.dataset.panel];
+    if (allowed && !allowed.includes(role)) btn.hidden = true;
+  });
+  document.querySelectorAll('.stat-card[data-panel]').forEach((btn) => {
+    const allowed = PANEL_ROLE_ACCESS[btn.dataset.panel];
+    if (allowed && !allowed.includes(role)) btn.hidden = true;
+  });
+
+  const badge = document.getElementById('role-badge');
+  badge.textContent = ROLE_LABELS[role] || role;
+  badge.hidden = false;
+}
+
 // --- Boot -----------------------------------------------------------------
 
 async function boot() {
@@ -1102,23 +1651,32 @@ async function boot() {
     SESSION = await requireAdminSession();
     if (!SESSION) return; // requireAdminSession already redirected
 
+    const role = getAdminRole();
+    applyRoleVisibility(role);
+
     initNav();
     initStatCards();
     initListControls();
     initSearch();
     initMessages();
+    initSuperuserTools();
 
-    const { data: supportId } = await client.rpc('get_support_account_id');
-    SUPPORT_ACCOUNT_ID = supportId;
+    const canSeeMerchantData = role === 'merchant_success' || role === 'superuser';
+    const canSeeMessages = role === 'customer_experience' || role === 'superuser';
 
-    await Promise.all([
-      loadOverview(),
-      loadApplications(),
-      loadFlagged(),
-      loadSellers(),
-      loadUserReports(),
-      loadUserMessages(),
-    ]);
+    if (canSeeMessages) {
+      const { data: supportId } = await client.rpc('get_support_account_id');
+      SUPPORT_ACCOUNT_ID = supportId;
+    }
+
+    const loaders = [loadOverview()];
+    if (canSeeMerchantData) {
+      loaders.push(loadApplications(), loadFlagged(), loadSellers(), loadUserReports());
+    }
+    if (canSeeMessages) {
+      loaders.push(loadUserMessages());
+    }
+    await Promise.all(loaders);
   } finally {
     hideLoading();
   }
