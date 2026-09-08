@@ -133,6 +133,7 @@ function initStatCards() {
 // lists (Applications, Flagged products, Sellers & stores).
 function initListControls() {
   document.getElementById('applications-load-more').addEventListener('click', () => loadApplications(false));
+  document.getElementById('riders-load-more').addEventListener('click', () => loadRiderApplications(false));
 
   document.getElementById('flagged-filter').addEventListener('change', () => loadFlagged(true));
   document.getElementById('flagged-load-more').addEventListener('click', () => loadFlagged(false));
@@ -150,8 +151,9 @@ function initListControls() {
 async function loadOverview() {
   showLoading('Loading overview…');
   try {
-    const [pending, flagged, stores, products, reports, conversations] = await Promise.all([
+    const [pending, pendingRiders, flagged, stores, products, reports, conversations] = await Promise.all([
       client.from('admin_pending_applications').select('*', { count: 'exact', head: true }),
+      client.from('admin_pending_rider_applications').select('*', { count: 'exact', head: true }),
       client.from('admin_flagged_products').select('*', { count: 'exact', head: true }),
       client.from('admin_seller_overview').select('*', { count: 'exact', head: true }),
       client.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true),
@@ -166,6 +168,7 @@ async function loadOverview() {
     const unreadMessages = (conversations.data || []).reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
     document.getElementById('stat-pending').textContent = pending.count ?? '—';
+    document.getElementById('stat-pending-riders').textContent = pendingRiders.count ?? '—';
     document.getElementById('stat-flagged').textContent = flagged.count ?? '—';
     document.getElementById('stat-stores').textContent = stores.count ?? '—';
     document.getElementById('stat-products').textContent = products.count ?? '—';
@@ -173,11 +176,14 @@ async function loadOverview() {
     document.getElementById('stat-messages').textContent = unreadMessages;
 
     const appBadge = document.getElementById('badge-applications');
+    const riderBadge = document.getElementById('badge-riders');
     const flagBadge = document.getElementById('badge-flagged');
     const reportsBadge = document.getElementById('badge-reports');
     const messagesBadge = document.getElementById('badge-messages');
     appBadge.textContent = pending.count ?? '';
     appBadge.hidden = !pending.count;
+    riderBadge.textContent = pendingRiders.count ?? '';
+    riderBadge.hidden = !pendingRiders.count;
     flagBadge.textContent = flagged.count ?? '';
     flagBadge.hidden = !flagged.count;
     reportsBadge.textContent = reports.count ?? '';
@@ -212,11 +218,25 @@ async function viewDocument(path, label) {
 async function approveApplication(app) {
   showLoading('Approving application…');
   try {
-    const { error } = await client
+    // IMPORTANT: .select() + checking `data` is required here. When RLS
+    // blocks an update, Supabase/PostgREST does NOT return an `error` —
+    // the UPDATE statement runs "successfully," it just matches zero
+    // rows. Without .select(), `data` comes back null and there's no way
+    // to tell "actually approved" apart from "silently no-opped because
+    // this admin isn't allowed to." That gap used to let the code fall
+    // through to sending the "approved" notification and the "success"
+    // toast below even when nothing in the database changed — the
+    // application would reappear on refresh, still pending, while the
+    // applicant had already been told they were approved.
+    const { data, error } = await client
       .from('seller_applications')
       .update({ status: 'approved', reviewed_by: SESSION.user.id, reviewed_at: new Date().toISOString() })
-      .eq('id', app.application_id);
+      .eq('id', app.application_id)
+      .select('id');
     if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't approve — you may not have permission to review applications.", true);
+    }
 
     try {
       const result = await callFunction('send-application-status-email', {
@@ -253,7 +273,11 @@ async function rejectApplication(app) {
 
   showLoading('Rejecting application…');
   try {
-    const { error } = await client
+    // See the matching comment in approveApplication() — .select() is
+    // required to distinguish "actually rejected" from "RLS silently
+    // matched zero rows," which otherwise still sends the rejection
+    // notification and shows a false success toast.
+    const { data, error } = await client
       .from('seller_applications')
       .update({
         status: 'rejected',
@@ -261,8 +285,12 @@ async function rejectApplication(app) {
         reviewed_at: new Date().toISOString(),
         review_notes: notes,
       })
-      .eq('id', app.application_id);
+      .eq('id', app.application_id)
+      .select('id');
     if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't reject — you may not have permission to review applications.", true);
+    }
 
     try {
       const result = await callFunction('send-application-status-email', {
@@ -289,9 +317,10 @@ async function rejectApplication(app) {
 /** Manual fallback for the two automatic paths (immediate match at
  *  submission, or the signup trigger backfilling it later) — covers
  *  the case where neither catches it, e.g. the applicant used a
- *  different email in the app than on the form. Just a plain update;
- *  no special RLS needed since "Admins can update seller applications"
- *  (migration 0060) already permits this.
+ *  different email in the app than on the form. Just a plain update —
+ *  gated by "Merchant Success can update seller applications" (migration
+ *  0071; superseded the old any-admin policy from migration 0060), so
+ *  only Merchant Success/Superuser can actually link an application.
  */
 async function linkApplicationToUser(app) {
   const phone = window.prompt(`Link "${app.business_name}" to the app account with this phone number:`, app.phone);
@@ -305,8 +334,17 @@ async function linkApplicationToUser(app) {
     if (lookupError) return showToast(lookupError.message, true);
     if (!userId) return showToast(`No app account found with phone ${phone}.`, true);
 
-    const { error } = await client.from('seller_applications').update({ user_id: userId }).eq('id', app.application_id);
+    // See the comment in approveApplication() — .select() distinguishes
+    // an actual update from one RLS silently no-op'd.
+    const { data, error } = await client
+      .from('seller_applications')
+      .update({ user_id: userId })
+      .eq('id', app.application_id)
+      .select('id');
     if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't link — you may not have permission to edit applications.", true);
+    }
 
     showToast('Linked.');
     loadApplications();
@@ -396,6 +434,169 @@ async function loadApplications(reset = true) {
     applicationsOffset += data.length;
     applicationsHasMore = data.length === PAGE_SIZE;
     loadMoreBtn.hidden = !applicationsHasMore;
+  } finally {
+    hideLoading();
+  }
+}
+
+// --- Rider applications ---------------------------------------------------
+// Same shape as the Applications panel above (approve/reject/link by
+// phone) — kept as its own set of functions rather than parameterizing
+// the seller ones, since the two tables' fields genuinely differ (no
+// documents here) and Fleet Ops/Merchant Success are gated separately.
+
+function riderApplicationCard(app) {
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const detailRow = (label, value) =>
+    value ? `<p class="card-meta"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>` : '';
+
+  card.innerHTML = `
+    <div class="card-title-row">
+      <div>
+        <p class="card-title">${escapeHtml(app.full_name)}</p>
+        <p class="card-subtitle">${escapeHtml(app.email)} · ${escapeHtml(app.phone)}</p>
+      </div>
+      <span class="status-chip ${app.user_id ? 'status-active' : 'status-inactive'}">
+        ${app.user_id ? 'Linked to app account' : 'Not yet linked'}
+      </span>
+    </div>
+    ${detailRow('City', app.city)}
+    ${detailRow('Vehicle category', app.vehicle_category)}
+    ${detailRow('Has vehicle', app.has_vehicle)}
+    ${detailRow('License number', app.license_number)}
+    ${detailRow('Experience', app.experience_years)}
+    ${detailRow('Residential address', app.residential_address)}
+    ${detailRow('Guarantor available', app.guarantor_available)}
+    ${detailRow('Notes', app.notes)}
+    <p class="card-meta">Applied ${formatDate(app.created_at)}</p>
+    <div class="card-actions">
+      ${app.user_id ? '' : '<button class="btn-secondary" data-action="link">Link to user by phone</button>'}
+      <button class="btn-primary" data-action="approve">Approve</button>
+      <button class="btn-danger" data-action="reject">Reject</button>
+    </div>
+  `;
+  card.querySelector('[data-action="link"]')?.addEventListener('click', () => linkRiderApplicationToUser(app));
+  card.querySelector('[data-action="approve"]').addEventListener('click', () => approveRiderApplication(app));
+  card.querySelector('[data-action="reject"]').addEventListener('click', () => rejectRiderApplication(app));
+  return card;
+}
+
+let ridersOffset = 0;
+let ridersHasMore = true;
+
+async function loadRiderApplications(reset = true) {
+  if (reset) {
+    ridersOffset = 0;
+    ridersHasMore = true;
+    document.getElementById('riders-list').innerHTML = '';
+  }
+  showLoading('Loading rider applications…');
+  try {
+    const { data, error } = await client
+      .from('admin_pending_rider_applications')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .range(ridersOffset, ridersOffset + PAGE_SIZE - 1);
+    const list = document.getElementById('riders-list');
+    const empty = document.getElementById('riders-empty');
+    const loadMoreBtn = document.getElementById('riders-load-more');
+    if (error) return showToast(error.message, true);
+    if (reset) empty.hidden = data.length > 0;
+    data.forEach((app) => list.appendChild(riderApplicationCard(app)));
+    ridersOffset += data.length;
+    ridersHasMore = data.length === PAGE_SIZE;
+    loadMoreBtn.hidden = !ridersHasMore;
+  } finally {
+    hideLoading();
+  }
+}
+
+async function approveRiderApplication(app) {
+  showLoading('Approving application…');
+  try {
+    // See the matching comment in approveApplication() — .select() is
+    // required to distinguish an actual approval from RLS silently
+    // matching zero rows.
+    const { data, error } = await client
+      .from('rider_applications')
+      .update({ status: 'approved', reviewed_by: SESSION.user.id, reviewed_at: new Date().toISOString() })
+      .eq('id', app.application_id)
+      .select('id');
+    if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't approve — you may not have permission to review rider applications.", true);
+    }
+    showToast(`${app.full_name} approved.`);
+    loadRiderApplications();
+    loadOverview();
+  } finally {
+    hideLoading();
+  }
+}
+
+async function rejectRiderApplication(app) {
+  const notes = await askForReason(
+    `Notes for ${app.full_name} (shown to the applicant):`,
+    [
+      "Details don't match what's required for this vehicle category.",
+      'Could not verify residential address.',
+      'This looks like a duplicate application.',
+      "Doesn't currently meet our rider criteria.",
+    ],
+  );
+  if (notes === null) return; // cancelled
+
+  showLoading('Rejecting application…');
+  try {
+    const { data, error } = await client
+      .from('rider_applications')
+      .update({
+        status: 'rejected',
+        reviewed_by: SESSION.user.id,
+        reviewed_at: new Date().toISOString(),
+        review_notes: notes,
+      })
+      .eq('id', app.application_id)
+      .select('id');
+    if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't reject — you may not have permission to review rider applications.", true);
+    }
+    showToast(`${app.full_name} rejected.`);
+    loadRiderApplications();
+    loadOverview();
+  } finally {
+    hideLoading();
+  }
+}
+
+/** Manual fallback, same reasoning as linkApplicationToUser() above. */
+async function linkRiderApplicationToUser(app) {
+  const phone = window.prompt(`Link "${app.full_name}" to the app account with this phone number:`, app.phone);
+  if (!phone) return;
+
+  showLoading('Linking application…');
+  try {
+    const { data: userId, error: lookupError } = await client.rpc('find_profile_id_by_phone', {
+      p_phone: phone.trim(),
+    });
+    if (lookupError) return showToast(lookupError.message, true);
+    if (!userId) return showToast(`No app account found with phone ${phone}.`, true);
+
+    const { data, error } = await client
+      .from('rider_applications')
+      .update({ user_id: userId })
+      .eq('id', app.application_id)
+      .select('id');
+    if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't link — you may not have permission to edit rider applications.", true);
+    }
+
+    showToast('Linked.');
+    loadRiderApplications();
   } finally {
     hideLoading();
   }
@@ -859,10 +1060,12 @@ function storeProductCard(p) {
     ${notice ? `<p class="card-notice">${escapeHtml(notice)}</p>` : ''}
     <div class="card-actions">
       ${moderationActionsHtml(p.moderation_status)}
+      ${isSuperuser ? '<button class="btn-secondary" data-action="edit-listing">Edit listing</button>' : ''}
       ${isSuperuser ? '<button class="btn-danger" data-action="delete-listing">Delete listing</button>' : ''}
     </div>
   `;
   wireModerationActions(card, p.id, () => viewStoreDetail(currentStoreDetail));
+  card.querySelector('[data-action="edit-listing"]')?.addEventListener('click', () => editListing(p));
   card.querySelector('[data-action="delete-listing"]')?.addEventListener('click', () => deleteListing(p));
   return card;
 }
@@ -1385,15 +1588,23 @@ function openStoreFormModal(mode, store) {
   });
 }
 
-function openCreateListingModal() {
-  document.getElementById('create-listing-name').value = '';
-  document.getElementById('create-listing-description').value = '';
-  document.getElementById('create-listing-price').value = '';
-  document.getElementById('create-listing-category').value = '';
-  document.getElementById('create-listing-stock').value = '0';
-  document.getElementById('create-listing-pickup-address').value = '';
-  document.getElementById('create-listing-pickup-landmark').value = '';
-  createListingPhotoPicker.reset(null);
+// Shared by "Add listing" (Store detail, create mode) and "Edit listing"
+// (per-product, edit mode) -- same fields either way, just pre-filled or
+// blank and relabelled. `product` is the full products row for edit, or
+// null to create. Mirrors openStoreFormModal()'s create/edit pattern.
+function openListingFormModal(mode, product) {
+  document.getElementById('create-listing-title').textContent = mode === 'edit' ? 'Edit listing' : 'Add a listing';
+  document.getElementById('create-listing-submit').textContent = mode === 'edit' ? 'Save' : 'Create';
+
+  document.getElementById('create-listing-name').value = product?.title || '';
+  document.getElementById('create-listing-description').value = product?.description || '';
+  document.getElementById('create-listing-price').value = product?.price ?? '';
+  document.getElementById('create-listing-category').value = product?.category || '';
+  document.getElementById('create-listing-stock').value = product?.stock ?? '0';
+  document.getElementById('create-listing-pickup-address').value = product?.pickup_address || '';
+  document.getElementById('create-listing-pickup-landmark').value = product?.pickup_landmark || '';
+  createListingPhotoPicker.reset(product?.image_urls || null);
+
   return openFieldModal('create-listing-overlay', 'create-listing-submit', 'create-listing-cancel', () => ({
     title: document.getElementById('create-listing-name').value.trim(),
     description: document.getElementById('create-listing-description').value.trim() || null,
@@ -1500,7 +1711,7 @@ async function editStore(storeOverview) {
 }
 
 async function createListingForStore(store) {
-  const fields = await openCreateListingModal();
+  const fields = await openListingFormModal('create', null);
   if (!fields) return;
   if (!fields.title || !fields.category || !(fields.price >= 0)) {
     return showToast('Enter a title, category, and a valid price.', true);
@@ -1518,6 +1729,46 @@ async function createListingForStore(store) {
     if (error) return showToast(error.message, true);
     showToast('Listing created.');
     viewStoreDetail(store);
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    hideLoading();
+  }
+}
+
+// Edits a listing in ANY store (unlike a seller's own edit path in the
+// app, which is scoped to their own products) -- backed by "Superusers
+// can update any product" (migration 0075). Fetches the full row first
+// since storeProductCard()'s list query only selects the fields that
+// list view needs.
+async function editListing(product) {
+  const { data: fullProduct, error: fetchError } = await client
+    .from('products')
+    .select('*')
+    .eq('id', product.id)
+    .single();
+  if (fetchError) return showToast(fetchError.message, true);
+
+  const fields = await openListingFormModal('edit', fullProduct);
+  if (!fields) return;
+  if (!fields.title || !fields.category || !(fields.price >= 0)) {
+    return showToast('Enter a title, category, and a valid price.', true);
+  }
+
+  showLoading('Saving listing…');
+  try {
+    const imageUrls = await resolvePhotoUrls(createListingPhotoPicker);
+    const { data, error } = await client
+      .from('products')
+      .update({ image_urls: imageUrls, ...fields })
+      .eq('id', fullProduct.id)
+      .select('id');
+    if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't save — you may not have permission to edit this listing.", true);
+    }
+    showToast('Listing updated.');
+    if (currentStoreDetail) viewStoreDetail(currentStoreDetail);
   } catch (e) {
     showToast(e.message, true);
   } finally {
@@ -1602,40 +1853,55 @@ function initSuperuserTools() {
 }
 
 // --- Role-based visibility --------------------------------------------
-// Team Roles & Contact Channels: Customer Experience handles direct
-// customer inquiries + live chat only (merchant issues get escalated to
-// Merchant Success, so this dashboard doesn't even show them those
-// panels); Merchant Success reviews/approves/rejects applications and
-// oversees merchant inventory, but not the customer-facing chat inbox;
-// Superuser sees everything, plus its own dedicated panel. Actions that
-// are ALSO narrower than "any admin" within a panel both roles can see
-// (e.g. Merchant Success can view a store's products but not deactivate
-// the whole store) are gated individually where they're rendered —
+// Support (Customer Experience) can see everything EXCEPT Applications
+// and Superuser tools. Merchant (Merchant Success) can see everything
+// EXCEPT Flagged products, User reports, User messages, and Superuser
+// tools. Superuser sees and can do everything. "Sellers & stores" isn't
+// restricted for either role.
+//
+// Search is the one exception worth calling out: it surfaces pending
+// applications alongside stores/products (see loadSearchResults()), so
+// giving Support the Search panel would leak the exact Applications
+// data they're not supposed to see. It's kept Merchant/Superuser-only
+// for that reason, even though "Search" itself isn't named on either
+// restricted list.
+//
+// Actions that are ALSO narrower than "any admin" within a panel both
+// roles can see (e.g. only a superuser can deactivate a store or edit
+// a listing) are gated individually where they're rendered —
 // sellerCard(), storeProductCard(), viewStoreDetail() above.
 const PANEL_ROLE_ACCESS = {
   applications: ['merchant_success', 'superuser'],
-  flagged: ['merchant_success', 'superuser'],
-  sellers: ['merchant_success', 'superuser'],
-  reports: ['merchant_success', 'superuser'],
+  riders: ['fleet_ops', 'superuser'],
+  flagged: ['customer_experience', 'superuser'],
+  reports: ['customer_experience', 'superuser'],
   messages: ['customer_experience', 'superuser'],
   search: ['merchant_success', 'superuser'],
   superuser: ['superuser'],
+  // 'sellers' intentionally has no entry: every role can see it.
 };
 
 const ROLE_LABELS = {
   customer_experience: 'Customer Experience',
   merchant_success: 'Merchant Success',
+  fleet_ops: 'Fleet Ops',
   superuser: 'Superuser',
 };
 
+// Single source of truth for "can this role see this panel" — used both
+// to hide nav/stat-card buttons and to decide which data to load, so the
+// two can never drift apart (e.g. a panel that's hidden but still fetched).
+function canAccessPanel(panel, role) {
+  const allowed = PANEL_ROLE_ACCESS[panel];
+  return !allowed || allowed.includes(role);
+}
+
 function applyRoleVisibility(role) {
   document.querySelectorAll('.nav-link[data-panel]').forEach((btn) => {
-    const allowed = PANEL_ROLE_ACCESS[btn.dataset.panel];
-    if (allowed && !allowed.includes(role)) btn.hidden = true;
+    if (!canAccessPanel(btn.dataset.panel, role)) btn.hidden = true;
   });
   document.querySelectorAll('.stat-card[data-panel]').forEach((btn) => {
-    const allowed = PANEL_ROLE_ACCESS[btn.dataset.panel];
-    if (allowed && !allowed.includes(role)) btn.hidden = true;
+    if (!canAccessPanel(btn.dataset.panel, role)) btn.hidden = true;
   });
 
   const badge = document.getElementById('role-badge');
@@ -1661,21 +1927,17 @@ async function boot() {
     initMessages();
     initSuperuserTools();
 
-    const canSeeMerchantData = role === 'merchant_success' || role === 'superuser';
-    const canSeeMessages = role === 'customer_experience' || role === 'superuser';
-
-    if (canSeeMessages) {
+    if (canAccessPanel('messages', role)) {
       const { data: supportId } = await client.rpc('get_support_account_id');
       SUPPORT_ACCOUNT_ID = supportId;
     }
 
-    const loaders = [loadOverview()];
-    if (canSeeMerchantData) {
-      loaders.push(loadApplications(), loadFlagged(), loadSellers(), loadUserReports());
-    }
-    if (canSeeMessages) {
-      loaders.push(loadUserMessages());
-    }
+    const loaders = [loadOverview(), loadSellers()]; // sellers isn't role-restricted
+    if (canAccessPanel('applications', role)) loaders.push(loadApplications());
+    if (canAccessPanel('riders', role)) loaders.push(loadRiderApplications());
+    if (canAccessPanel('flagged', role)) loaders.push(loadFlagged());
+    if (canAccessPanel('reports', role)) loaders.push(loadUserReports());
+    if (canAccessPanel('messages', role)) loaders.push(loadUserMessages());
     await Promise.all(loaders);
   } finally {
     hideLoading();

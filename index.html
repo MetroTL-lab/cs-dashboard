@@ -21,6 +21,9 @@
         <button class="nav-link" data-panel="applications">
           Applications <span class="nav-badge" id="badge-applications" hidden></span>
         </button>
+        <button class="nav-link" data-panel="riders">
+          Rider applications <span class="nav-badge" id="badge-riders" hidden></span>
+        </button>
         <button class="nav-link" data-panel="flagged">
           Flagged products <span class="nav-badge" id="badge-flagged" hidden></span>
         </button>
@@ -49,6 +52,7 @@
         </div>
         <dl class="stat-grid" id="stat-grid">
           <button type="button" class="stat-card stat-card--urgent" data-panel="applications" id="stat-card-applications"><dd class="stat-value" id="stat-pending">—</dd><dt class="stat-label">Pending applications</dt></button>
+          <button type="button" class="stat-card stat-card--urgent" data-panel="riders" id="stat-card-riders"><dd class="stat-value" id="stat-pending-riders">—</dd><dt class="stat-label">Pending rider applications</dt></button>
           <button type="button" class="stat-card stat-card--urgent" data-panel="flagged" id="stat-card-flagged"><dd class="stat-value" id="stat-flagged">—</dd><dt class="stat-label">Flagged products</dt></button>
           <button type="button" class="stat-card" data-panel="sellers" id="stat-card-sellers"><dd class="stat-value" id="stat-stores">—</dd><dt class="stat-label">Stores</dt></button>
           <button type="button" class="stat-card stat-card--urgent" data-panel="reports" id="stat-card-reports"><dd class="stat-value" id="stat-reports">—</dd><dt class="stat-label">User reports</dt></button>
@@ -66,6 +70,17 @@
         <div id="applications-list" class="list"></div>
         <p class="empty-state" id="applications-empty" hidden>No pending applications right now.</p>
         <button type="button" class="btn-secondary load-more-btn" id="applications-load-more" hidden>Load more</button>
+      </section>
+
+      <!-- Rider applications -->
+      <section class="panel-section" id="panel-riders">
+        <div class="panel-header">
+          <h1>Pending rider applications</h1>
+          <p class="panel-lede">Submitted from riders.metrotransit.com.ng. Review before approving.</p>
+        </div>
+        <div id="riders-list" class="list"></div>
+        <p class="empty-state" id="riders-empty" hidden>No pending rider applications right now.</p>
+        <button type="button" class="btn-secondary load-more-btn" id="riders-load-more" hidden>Load more</button>
       </section>
 
       <!-- Flagged products -->
@@ -362,9 +377,12 @@
     </div>
   </div>
 
-  <!-- Create listing modal: superuser-only, inserts a product for
-       whichever store is currently open in Store detail. Mirrors every
-       field the real Create Listing screen in the app collects
+  <!-- Create/Edit listing modal: superuser-only. Shared by "Add listing"
+       (inserts a product for whichever store is open in Store detail)
+       and "Edit listing" (updates an existing product in any store) —
+       same fields either way, just pre-filled or blank and relabelled,
+       same pattern as the store-form-overlay above. Mirrors every field
+       the real Create Listing screen in the app collects
        (create_listing_controller.dart), including photos. -->
   <div class="modal-overlay" id="create-listing-overlay">
     <div class="modal-box modal-box--wide" role="dialog" aria-modal="true" aria-labelledby="create-listing-title">
