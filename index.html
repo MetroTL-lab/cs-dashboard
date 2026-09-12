@@ -24,6 +24,7 @@
         <button class="nav-link" data-panel="riders">
           Rider applications <span class="nav-badge" id="badge-riders" hidden></span>
         </button>
+        <button class="nav-link" data-panel="rider-roster">Riders</button>
         <button class="nav-link" data-panel="flagged">
           Flagged products <span class="nav-badge" id="badge-flagged" hidden></span>
         </button>
@@ -81,6 +82,25 @@
         <div id="riders-list" class="list"></div>
         <p class="empty-state" id="riders-empty" hidden>No pending rider applications right now.</p>
         <button type="button" class="btn-secondary load-more-btn" id="riders-load-more" hidden>Load more</button>
+      </section>
+
+      <!-- Riders roster (approved riders — suspend/reactivate/appeals) -->
+      <section class="panel-section" id="panel-rider-roster">
+        <div class="panel-header">
+          <h1>Riders</h1>
+          <p class="panel-lede">Approved riders. Suspend, reactivate, or resolve an appeal.</p>
+        </div>
+        <div class="list-controls">
+          <label for="rider-roster-filter" class="sr-only">Filter by status</label>
+          <select id="rider-roster-filter" class="filter-select">
+            <option value="all">All riders</option>
+            <option value="active">Active</option>
+            <option value="inactive">Suspended</option>
+          </select>
+        </div>
+        <div id="rider-roster-list" class="list"></div>
+        <p class="empty-state" id="rider-roster-empty" hidden>No approved riders yet.</p>
+        <button type="button" class="btn-secondary load-more-btn" id="rider-roster-load-more" hidden>Load more</button>
       </section>
 
       <!-- Flagged products -->

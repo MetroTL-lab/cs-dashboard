@@ -152,6 +152,9 @@ function initListControls() {
   document.getElementById('sellers-sort').addEventListener('change', () => loadSellers(true));
   document.getElementById('sellers-load-more').addEventListener('click', () => loadSellers(false));
 
+  document.getElementById('rider-roster-filter').addEventListener('change', () => loadRiderRoster(true));
+  document.getElementById('rider-roster-load-more').addEventListener('click', () => loadRiderRoster(false));
+
   document.getElementById('reports-filter').addEventListener('change', () => loadUserReports(true));
   document.getElementById('reports-load-more').addEventListener('click', () => loadUserReports(false));
 }
@@ -544,6 +547,20 @@ async function approveRiderApplication(app) {
     if (!data || data.length === 0) {
       return showToast("Couldn't approve — you may not have permission to review rider applications.", true);
     }
+
+    try {
+      const result = await callFunction('send-rider-application-status-email', {
+        applicationId: app.application_id,
+        userId: app.user_id,
+        email: app.email,
+        status: 'approved',
+      });
+      if (result.email && result.email.sent === false) {
+        showToast(`Approved, but the email didn't send: ${result.email.error || 'unknown reason'}`, true);
+      }
+    } catch (e) {
+      showToast(`Approved, but the notification email failed: ${e.message}`, true);
+    }
     showToast(`${app.full_name} approved.`);
     loadRiderApplications();
     loadOverview();
@@ -581,6 +598,21 @@ async function rejectRiderApplication(app) {
     if (!data || data.length === 0) {
       return showToast("Couldn't reject — you may not have permission to review rider applications.", true);
     }
+
+    try {
+      const result = await callFunction('send-rider-application-status-email', {
+        applicationId: app.application_id,
+        userId: app.user_id,
+        email: app.email,
+        status: 'rejected',
+        reviewNotes: notes,
+      });
+      if (result.email && result.email.sent === false) {
+        showToast(`Rejected, but the email didn't send: ${result.email.error || 'unknown reason'}`, true);
+      }
+    } catch (e) {
+      showToast(`Rejected, but the notification email failed: ${e.message}`, true);
+    }
     showToast(`${app.full_name} rejected.`);
     loadRiderApplications();
     loadOverview();
@@ -615,6 +647,173 @@ async function linkRiderApplicationToUser(app) {
 
     showToast('Linked.');
     loadRiderApplications();
+  } finally {
+    hideLoading();
+  }
+}
+
+// --- Riders roster (approved riders — suspend/reactivate/appeals) ---------
+//
+// Separate from the "Rider applications" panel above (pending review,
+// Fleet Ops-gated) — this is the roster of already-approved riders,
+// mirroring "Sellers & stores" one level down (no separate "store"
+// entity for a rider; rider_applications itself holds is_active etc.,
+// see migration 0094). Not role-restricted at the panel level, same as
+// 'sellers' — every role can browse the roster; suspend/reactivate/
+// appeal actions are gated to superuser only, same severity split as
+// toggleStoreActive/approveStoreAppeal/denyStoreAppeal above.
+
+const RIDER_REASON_SUGGESTIONS = {
+  suspended: [
+    'Multiple confirmed policy violations.',
+    'Repeated user complaints.',
+    'Failed verification checks.',
+  ],
+  appeal_denied: [
+    "Appeal doesn't address the original violation.",
+    'Insufficient evidence provided.',
+    'Additional violations found during review.',
+  ],
+};
+
+/** Rider-level equivalent of storeModerationAction() — inserts into
+ *  rider_moderation_actions (not a raw rider_applications update: the
+ *  trigger-mediated write is what pairs a suspension/reactivation with
+ *  the rider's email + in-app notification every time). promptMessage
+ *  is the reason modal's title, shown when the action needs a reason;
+ *  pass null/undefined to skip it entirely (appeal_approved, reactivated).
+ */
+async function riderModerationAction(riderId, action, promptMessage, suggestions = []) {
+  let reason;
+  if (promptMessage) {
+    reason = await askForReason(promptMessage, suggestions);
+    if (reason === null) return false; // cancelled
+  }
+
+  showLoading('Applying action…');
+  try {
+    const { error } = await client.from('rider_moderation_actions').insert({
+      rider_id: riderId,
+      admin_id: SESSION.user.id,
+      action,
+      reason: reason || null,
+    });
+    if (error) {
+      showToast(error.message, true);
+      return false;
+    }
+
+    try {
+      const result = await callFunction('send-rider-moderation-email', { riderId, action, reason });
+      if (result.email && result.email.sent === false && !result.skipped) {
+        showToast(`Action applied, but the email didn't send: ${result.email.error || 'unknown reason'}`, true);
+      }
+    } catch (e) {
+      showToast(`Action applied, but the notification email failed: ${e.message}`, true);
+    }
+    showToast('Done.');
+    loadOverview();
+    return true;
+  } finally {
+    hideLoading();
+  }
+}
+
+async function toggleRiderActive(rider) {
+  if (rider.is_active) {
+    const ok = await riderModerationAction(
+      rider.user_id,
+      'suspended',
+      `Reason for suspending ${rider.full_name} (shown to the rider, by email and in the app):`,
+      RIDER_REASON_SUGGESTIONS.suspended,
+    );
+    if (ok) loadRiderRoster(true);
+  } else {
+    const ok = await riderModerationAction(rider.user_id, 'reactivated', null);
+    if (ok) loadRiderRoster(true);
+  }
+}
+
+async function approveRiderAppeal(rider) {
+  const ok = await riderModerationAction(rider.user_id, 'appeal_approved', null);
+  if (ok) loadRiderRoster(true);
+}
+
+async function denyRiderAppeal(rider) {
+  const ok = await riderModerationAction(
+    rider.user_id,
+    'appeal_denied',
+    `Reason for denying ${rider.full_name}'s appeal (shown to the rider):`,
+    RIDER_REASON_SUGGESTIONS.appeal_denied,
+  );
+  if (ok) loadRiderRoster(true);
+}
+
+/** Used only in the Riders roster list — one card definition, same
+ *  shape as sellerCard() above.
+ */
+function riderRosterCard(rider) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const isSuperuser = getAdminRole() === 'superuser';
+  const statusLabel = rider.is_active ? 'Active' : (rider.appeal_pending ? 'Appeal pending' : 'Suspended');
+  const statusClass = rider.is_active ? 'status-active' : (rider.appeal_pending ? 'status-appeal_pending' : 'status-inactive');
+  const appealNote = rider.is_active
+    ? ''
+    : rider.appeal_pending
+      ? ' · awaiting your review'
+      : rider.appeal_available
+        ? ' · appeal available to rider'
+        : ' · already used its one appeal';
+  card.innerHTML = `
+    <div class="card-title-row">
+      <div>
+        <p class="card-title">${escapeHtml(rider.full_name)}</p>
+        <p class="card-subtitle">${escapeHtml(rider.email)} · ${escapeHtml(rider.phone)}</p>
+      </div>
+      <span class="status-chip ${statusClass}">${statusLabel}</span>
+    </div>
+    <p class="card-meta">${escapeHtml(rider.city)} · ${escapeHtml(rider.vehicle_category)}${appealNote}</p>
+    ${rider.deactivation_reason ? `<p class="card-notice">${escapeHtml(rider.deactivation_reason)}</p>` : ''}
+    <div class="card-actions">
+      ${isSuperuser && rider.appeal_pending ? '<button class="btn-primary" data-action="approve-appeal">Approve appeal</button><button class="btn-danger" data-action="deny-appeal">Deny appeal</button>' : ''}
+      ${isSuperuser ? `<button class="btn-secondary" data-action="toggle">${rider.is_active ? 'Suspend rider' : 'Reactivate rider'}</button>` : ''}
+    </div>
+  `;
+  card.querySelector('[data-action="toggle"]')?.addEventListener('click', () => toggleRiderActive(rider));
+  card.querySelector('[data-action="approve-appeal"]')?.addEventListener('click', () => approveRiderAppeal(rider));
+  card.querySelector('[data-action="deny-appeal"]')?.addEventListener('click', () => denyRiderAppeal(rider));
+  return card;
+}
+
+let riderRosterOffset = 0;
+let riderRosterHasMore = true;
+
+async function loadRiderRoster(reset = true) {
+  if (reset) {
+    riderRosterOffset = 0;
+    riderRosterHasMore = true;
+    document.getElementById('rider-roster-list').innerHTML = '';
+  }
+  showLoading('Loading riders…');
+  try {
+    const statusFilter = document.getElementById('rider-roster-filter').value;
+
+    let query = client.from('admin_rider_overview').select('*');
+    if (statusFilter === 'active') query = query.eq('is_active', true);
+    if (statusFilter === 'inactive') query = query.eq('is_active', false);
+    query = query.range(riderRosterOffset, riderRosterOffset + PAGE_SIZE - 1);
+
+    const { data, error } = await query;
+    const list = document.getElementById('rider-roster-list');
+    const empty = document.getElementById('rider-roster-empty');
+    const loadMoreBtn = document.getElementById('rider-roster-load-more');
+    if (error) return showToast(error.message, true);
+    if (reset) empty.hidden = data.length > 0;
+    data.forEach((r) => list.appendChild(riderRosterCard(r)));
+    riderRosterOffset += data.length;
+    riderRosterHasMore = data.length === PAGE_SIZE;
+    loadMoreBtn.hidden = !riderRosterHasMore;
   } finally {
     hideLoading();
   }
@@ -1914,7 +2113,10 @@ const PANEL_ROLE_ACCESS = {
   messages: ['customer_experience', 'superuser'],
   search: ['merchant_success', 'superuser'],
   superuser: ['superuser'],
-  // 'sellers' intentionally has no entry: every role can see it.
+  // 'sellers' and 'rider-roster' intentionally have no entry: every
+  // role can see them. Suspend/reactivate/appeal actions within
+  // rider-roster are gated to superuser individually in
+  // riderRosterCard(), same as sellerCard()'s toggle/delete buttons.
 };
 
 const ROLE_LABELS = {
@@ -1984,7 +2186,7 @@ async function boot() {
       SUPPORT_ACCOUNT_ID = supportId;
     }
 
-    const loaders = [loadOverview(), loadSellers()]; // sellers isn't role-restricted
+    const loaders = [loadOverview(), loadSellers(), loadRiderRoster()]; // sellers/rider roster aren't role-restricted
     if (canAccessPanel('applications', role)) loaders.push(loadApplications());
     if (canAccessPanel('riders', role)) loaders.push(loadRiderApplications());
     if (canAccessPanel('flagged', role)) loaders.push(loadFlagged());
