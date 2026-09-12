@@ -29,6 +29,21 @@
 
 * { box-sizing: border-box; }
 
+/* Every element that sets its own `display` (flex, grid, etc.) via a
+   class selector silently defeats the `hidden` attribute/property:
+   `hidden` only works through the UA stylesheet's very-low-priority
+   `[hidden] { display: none }` rule, and ANY author rule that sets
+   `display` on that same element — regardless of specificity — wins
+   over a UA rule. .nav-link and .stat-card both set `display: flex`,
+   so `btn.hidden = true` in dashboard.js's applyRoleVisibility() was
+   setting the attribute correctly but having zero visual effect: every
+   restricted nav tab and stat card kept rendering for every role. This
+   is a blanket fix so the same footgun can't bite silently again on
+   any future element that both sets its own `display` and is ever
+   toggled via `.hidden`. */
+[hidden] { display: none !important; }
+
+
 html, body {
   margin: 0;
   padding: 0;
