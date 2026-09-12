@@ -100,6 +100,16 @@ function askForReason(title, suggestions = []) {
 // the two never disagree about what's on screen.
 
 function activatePanel(panelId, navPanelId = panelId) {
+  // Guard the single entry point every navigation path goes through
+  // (sidebar clicks, stat-card shortcuts, store/message "back" links,
+  // and any programmatic call) so a restricted panel can't be shown even
+  // if something calls activatePanel() directly instead of clicking the
+  // (hidden) nav button.
+  if (!canAccessPanel(panelId, getAdminRole())) {
+    console.warn(`Blocked navigation to "${panelId}" — not permitted for this role.`);
+    panelId = 'overview';
+    navPanelId = 'overview';
+  }
   document.querySelectorAll('.panel-section').forEach((p) => p.classList.remove('active'));
   document.getElementById(`panel-${panelId}`).classList.add('active');
   document.querySelectorAll('.nav-link').forEach((b) => {
@@ -216,6 +226,7 @@ async function viewDocument(path, label) {
 }
 
 async function approveApplication(app) {
+  assertPanelAccess('applications');
   showLoading('Approving application…');
   try {
     // IMPORTANT: .select() + checking `data` is required here. When RLS
@@ -260,6 +271,7 @@ async function approveApplication(app) {
 }
 
 async function rejectApplication(app) {
+  assertPanelAccess('applications');
   const notes = await askForReason(
     `Notes for ${app.business_name} (shown to the applicant):`,
     [
@@ -323,6 +335,7 @@ async function rejectApplication(app) {
  *  only Merchant Success/Superuser can actually link an application.
  */
 async function linkApplicationToUser(app) {
+  assertPanelAccess('applications');
   const phone = window.prompt(`Link "${app.business_name}" to the app account with this phone number:`, app.phone);
   if (!phone) return;
 
@@ -413,6 +426,7 @@ let applicationsOffset = 0;
 let applicationsHasMore = true;
 
 async function loadApplications(reset = true) {
+  assertPanelAccess('applications');
   if (reset) {
     applicationsOffset = 0;
     applicationsHasMore = true;
@@ -487,6 +501,7 @@ let ridersOffset = 0;
 let ridersHasMore = true;
 
 async function loadRiderApplications(reset = true) {
+  assertPanelAccess('riders');
   if (reset) {
     ridersOffset = 0;
     ridersHasMore = true;
@@ -514,6 +529,7 @@ async function loadRiderApplications(reset = true) {
 }
 
 async function approveRiderApplication(app) {
+  assertPanelAccess('riders');
   showLoading('Approving application…');
   try {
     // See the matching comment in approveApplication() — .select() is
@@ -537,6 +553,7 @@ async function approveRiderApplication(app) {
 }
 
 async function rejectRiderApplication(app) {
+  assertPanelAccess('riders');
   const notes = await askForReason(
     `Notes for ${app.full_name} (shown to the applicant):`,
     [
@@ -574,6 +591,7 @@ async function rejectRiderApplication(app) {
 
 /** Manual fallback, same reasoning as linkApplicationToUser() above. */
 async function linkRiderApplicationToUser(app) {
+  assertPanelAccess('riders');
   const phone = window.prompt(`Link "${app.full_name}" to the app account with this phone number:`, app.phone);
   if (!phone) return;
 
@@ -686,6 +704,10 @@ function wireModerationActions(card, productId, onDone) {
  *  can decide what -- if anything -- to refresh locally.
  */
 async function moderationAction(productId, action, needsReason) {
+  // Shared by both flagged-products actions and report-driven actions;
+  // 'flagged' and 'reports' have the same allowed roles, so checking
+  // either key here is equivalent.
+  assertPanelAccess('flagged');
   let reason;
   if (needsReason) {
     reason = await askForReason(
@@ -750,6 +772,7 @@ let flaggedOffset = 0;
 let flaggedHasMore = true;
 
 async function loadFlagged(reset = true) {
+  assertPanelAccess('flagged');
   if (reset) {
     flaggedOffset = 0;
     flaggedHasMore = true;
@@ -823,6 +846,7 @@ function reportCard(report) {
 }
 
 async function loadUserReports(reset = true) {
+  assertPanelAccess('reports');
   if (reset) {
     reportsOffset = 0;
     reportsHasMore = true;
@@ -1153,6 +1177,7 @@ function messageInboxRow(convo) {
 }
 
 async function loadUserMessages() {
+  assertPanelAccess('messages');
   showLoading('Loading messages…');
   try {
     const { data, error } = await client
@@ -1203,6 +1228,7 @@ let currentThreadConversationId = null;
 let messageReplyPhotoPicker;
 
 async function openMessageThread(convo) {
+  assertPanelAccess('messages');
   currentThreadConversationId = convo.conversation_id;
   activatePanel('message-thread', 'messages');
   document.getElementById('message-thread-title').textContent = convo.user_name || 'User';
@@ -1323,6 +1349,7 @@ function productSearchCard(product) {
 let lastSearchQuery = '';
 
 async function loadSearchResults() {
+  assertPanelAccess('search');
   const q = lastSearchQuery.trim();
   const appsHeading = document.getElementById('search-applications-heading');
   const storesHeading = document.getElementById('search-stores-heading');
@@ -1831,6 +1858,7 @@ function initSuperuserTools() {
 
   document.getElementById('user-lookup-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    assertPanelAccess('superuser');
     const input = document.getElementById('user-lookup-input');
     const phone = input.value.trim();
     if (!phone) return;
@@ -1870,6 +1898,14 @@ function initSuperuserTools() {
 // roles can see (e.g. only a superuser can deactivate a store or edit
 // a listing) are gated individually where they're rendered —
 // sellerCard(), storeProductCard(), viewStoreDetail() above.
+// Four roles actually exist in the `admins` table: 'customer_experience'
+// (Support), 'merchant_success' (Merchant), 'fleet_ops' (reviews rider
+// applications — migration 0072_rider_applications.sql), and
+// 'superuser'. I previously "fixed" riders to use merchant_success,
+// thinking fleet_ops was a typo/dead role — it isn't. It's a real,
+// deliberately separate role (its own is_fleet_ops() DB function,
+// its own RLS policies) for the team that reviews riders, distinct
+// from Merchant Success. Reverted.
 const PANEL_ROLE_ACCESS = {
   applications: ['merchant_success', 'superuser'],
   riders: ['fleet_ops', 'superuser'],
@@ -1894,6 +1930,22 @@ const ROLE_LABELS = {
 function canAccessPanel(panel, role) {
   const allowed = PANEL_ROLE_ACCESS[panel];
   return !allowed || allowed.includes(role);
+}
+
+// Defense-in-depth: called at the top of every panel's data-loading
+// function so that even a direct call from the console (bypassing the
+// hidden nav button) refuses to run for a role that shouldn't see that
+// panel. This is a UI-layer safety net only — it stops someone from
+// tricking THIS PAGE into rendering data it already fetched or could
+// fetch, but it can't stop someone from querying Supabase directly with
+// their own valid session and the public anon key. That boundary has to
+// be enforced server-side with Supabase RLS policies on the underlying
+// tables/views, keyed off admins.role — this function does not replace
+// that.
+function assertPanelAccess(panel) {
+  if (!canAccessPanel(panel, getAdminRole())) {
+    throw new Error(`Blocked: role "${getAdminRole()}" is not permitted to access "${panel}".`);
+  }
 }
 
 function applyRoleVisibility(role) {

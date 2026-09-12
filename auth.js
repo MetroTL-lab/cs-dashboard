@@ -29,7 +29,8 @@ const client = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE
 // Set by requireAdminSession() once the signed-in user is confirmed to
 // be in the admins table — dashboard.js reads this via getAdminRole()
 // to decide which panels/actions to show. One of 'customer_experience',
-// 'merchant_success', or 'superuser' (migration 0071).
+// 'merchant_success', 'fleet_ops', or 'superuser' (migration 0071,
+// 0072_rider_applications).
 let _adminRole = null;
 function getAdminRole() {
   return _adminRole;
