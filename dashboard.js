@@ -228,6 +228,113 @@ async function viewDocument(path, label) {
   }
 }
 
+// --- Cross-role conflict check (one-account, one-role) --------------------
+// Mirrors the actual enforcement point (migration 0095's DB trigger) —
+// this is just so a reviewer never gets offered an Approve button that
+// the database would reject anyway. Resolves by user_id when already
+// linked, falling back to the same by-phone lookup the "Link to user"
+// button already uses for an application that isn't linked yet.
+
+async function resolveApplicantUserId(app) {
+  if (app.user_id) return app.user_id;
+  const { data } = await client.rpc('find_profile_id_by_phone', { p_phone: app.phone });
+  return data || null;
+}
+
+/** True if this SELLER applicant is already an approved rider elsewhere. */
+async function isAlreadyRider(app) {
+  const userId = await resolveApplicantUserId(app);
+  if (!userId) return false;
+  const { data } = await client.rpc('is_approved_rider', { uid: userId });
+  return !!data;
+}
+
+/** True if this RIDER applicant is already an approved seller elsewhere. */
+async function isAlreadySeller(app) {
+  const userId = await resolveApplicantUserId(app);
+  if (!userId) return false;
+  const { data } = await client.rpc('is_approved_seller', { uid: userId });
+  return !!data;
+}
+
+/** Denies a seller application with a fixed, obvious reason — skips
+ *  askForReason() since there's nothing to choose: the applicant is
+ *  already an approved rider, full stop. Otherwise identical to
+ *  rejectApplication() (status/notes/email/toast/refresh). */
+async function denyConflictingApplication(app) {
+  assertPanelAccess('applications');
+  showLoading('Denying application…');
+  try {
+    const notes = 'This account is already an approved MetroTransit rider. An account can only be a seller or a rider, not both.';
+    const { data, error } = await client
+      .from('seller_applications')
+      .update({ status: 'rejected', reviewed_by: SESSION.user.id, reviewed_at: new Date().toISOString(), review_notes: notes })
+      .eq('id', app.application_id)
+      .select('id');
+    if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't deny — you may not have permission to review applications.", true);
+    }
+    try {
+      const result = await callFunction('send-application-status-email', {
+        applicationId: app.application_id,
+        userId: app.user_id,
+        email: app.email,
+        status: 'rejected',
+        reviewNotes: notes,
+      });
+      if (result.email && result.email.sent === false) {
+        showToast(`Denied, but the email didn't send: ${result.email.error || 'unknown reason'}`, true);
+      }
+    } catch (e) {
+      showToast(`Denied, but the notification email failed: ${e.message}`, true);
+    }
+    showToast(`${app.business_name} denied (already a rider).`);
+    loadApplications();
+    loadOverview();
+  } finally {
+    hideLoading();
+  }
+}
+
+/** Denies a rider application with a fixed reason — mirrors
+ *  denyConflictingApplication() exactly, one level down. */
+async function denyConflictingRiderApplication(app) {
+  assertPanelAccess('riders');
+  showLoading('Denying application…');
+  try {
+    const notes = 'This account is already an approved MetroSeller. An account can only be a rider or a seller, not both.';
+    const { data, error } = await client
+      .from('rider_applications')
+      .update({ status: 'rejected', reviewed_by: SESSION.user.id, reviewed_at: new Date().toISOString(), review_notes: notes })
+      .eq('id', app.application_id)
+      .select('id');
+    if (error) return showToast(error.message, true);
+    if (!data || data.length === 0) {
+      return showToast("Couldn't deny — you may not have permission to review rider applications.", true);
+    }
+    try {
+      const result = await callFunction('send-rider-application-status-email', {
+        applicationId: app.application_id,
+        userId: app.user_id,
+        email: app.email,
+        status: 'rejected',
+        reviewNotes: notes,
+      });
+      if (result.email && result.email.sent === false) {
+        showToast(`Denied, but the email didn't send: ${result.email.error || 'unknown reason'}`, true);
+      }
+    } catch (e) {
+      showToast(`Denied, but the notification email failed: ${e.message}`, true);
+    }
+    showToast(`${app.full_name} denied (already a seller).`);
+    loadRiderApplications();
+    loadOverview();
+  } finally {
+    hideLoading();
+  }
+}
+
 async function approveApplication(app) {
   assertPanelAccess('applications');
   showLoading('Approving application…');
@@ -369,7 +476,7 @@ async function linkApplicationToUser(app) {
   }
 }
 
-function applicationCard(app) {
+function applicationCard(app, alreadyRider) {
   const card = document.createElement('div');
   card.className = 'card';
 
@@ -385,6 +492,14 @@ function applicationCard(app) {
     .filter(([, , path]) => path)
     .map(([slot, label, path]) => `<button class="btn-secondary" data-doc="${slot}" data-path="${escapeHtml(path)}">View ${escapeHtml(label)}</button>`)
     .join('');
+
+  // One-account, one-role (migration 0095): if this applicant is
+  // already an approved rider, Approve would just be rejected by the
+  // database anyway — so there's only ever ONE correct action here,
+  // not two.
+  const decisionButtons = alreadyRider
+    ? '<button class="btn-danger" data-action="deny-conflict">Deny application (user already a rider)</button>'
+    : '<button class="btn-primary" data-action="approve">Approve</button><button class="btn-danger" data-action="reject">Reject</button>';
 
   card.innerHTML = `
     <div class="card-title-row">
@@ -412,16 +527,16 @@ function applicationCard(app) {
     <div class="card-actions">
       ${documentButtons}
       ${app.user_id ? '' : '<button class="btn-secondary" data-action="link">Link to user by phone</button>'}
-      <button class="btn-primary" data-action="approve">Approve</button>
-      <button class="btn-danger" data-action="reject">Reject</button>
+      ${decisionButtons}
     </div>
   `;
   card.querySelector('[data-action="link"]')?.addEventListener('click', () => linkApplicationToUser(app));
   card.querySelectorAll('[data-doc]').forEach((btn) => {
     btn.addEventListener('click', () => viewDocument(btn.dataset.path, btn.textContent.replace('View ', '')));
   });
-  card.querySelector('[data-action="approve"]').addEventListener('click', () => approveApplication(app));
-  card.querySelector('[data-action="reject"]').addEventListener('click', () => rejectApplication(app));
+  card.querySelector('[data-action="approve"]')?.addEventListener('click', () => approveApplication(app));
+  card.querySelector('[data-action="reject"]')?.addEventListener('click', () => rejectApplication(app));
+  card.querySelector('[data-action="deny-conflict"]')?.addEventListener('click', () => denyConflictingApplication(app));
   return card;
 }
 
@@ -447,7 +562,8 @@ async function loadApplications(reset = true) {
     const loadMoreBtn = document.getElementById('applications-load-more');
     if (error) return showToast(error.message, true);
     if (reset) empty.hidden = data.length > 0;
-    data.forEach((app) => list.appendChild(applicationCard(app)));
+    const conflicts = await Promise.all(data.map((app) => isAlreadyRider(app)));
+    data.forEach((app, i) => list.appendChild(applicationCard(app, conflicts[i])));
     applicationsOffset += data.length;
     applicationsHasMore = data.length === PAGE_SIZE;
     loadMoreBtn.hidden = !applicationsHasMore;
@@ -462,12 +578,18 @@ async function loadApplications(reset = true) {
 // the seller ones, since the two tables' fields genuinely differ (no
 // documents here) and Fleet Ops/Merchant Success are gated separately.
 
-function riderApplicationCard(app) {
+function riderApplicationCard(app, alreadySeller) {
   const card = document.createElement('div');
   card.className = 'card';
 
   const detailRow = (label, value) =>
     value ? `<p class="card-meta"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>` : '';
+
+  // One-account, one-role (migration 0095): mirrors applicationCard()'s
+  // own comment, one level down.
+  const decisionButtons = alreadySeller
+    ? '<button class="btn-danger" data-action="deny-conflict">Deny application (user already a seller)</button>'
+    : '<button class="btn-primary" data-action="approve">Approve</button><button class="btn-danger" data-action="reject">Reject</button>';
 
   card.innerHTML = `
     <div class="card-title-row">
@@ -490,13 +612,13 @@ function riderApplicationCard(app) {
     <p class="card-meta">Applied ${formatDate(app.created_at)}</p>
     <div class="card-actions">
       ${app.user_id ? '' : '<button class="btn-secondary" data-action="link">Link to user by phone</button>'}
-      <button class="btn-primary" data-action="approve">Approve</button>
-      <button class="btn-danger" data-action="reject">Reject</button>
+      ${decisionButtons}
     </div>
   `;
   card.querySelector('[data-action="link"]')?.addEventListener('click', () => linkRiderApplicationToUser(app));
-  card.querySelector('[data-action="approve"]').addEventListener('click', () => approveRiderApplication(app));
-  card.querySelector('[data-action="reject"]').addEventListener('click', () => rejectRiderApplication(app));
+  card.querySelector('[data-action="approve"]')?.addEventListener('click', () => approveRiderApplication(app));
+  card.querySelector('[data-action="reject"]')?.addEventListener('click', () => rejectRiderApplication(app));
+  card.querySelector('[data-action="deny-conflict"]')?.addEventListener('click', () => denyConflictingRiderApplication(app));
   return card;
 }
 
@@ -522,7 +644,8 @@ async function loadRiderApplications(reset = true) {
     const loadMoreBtn = document.getElementById('riders-load-more');
     if (error) return showToast(error.message, true);
     if (reset) empty.hidden = data.length > 0;
-    data.forEach((app) => list.appendChild(riderApplicationCard(app)));
+    const conflicts = await Promise.all(data.map((app) => isAlreadySeller(app)));
+    data.forEach((app, i) => list.appendChild(riderApplicationCard(app, conflicts[i])));
     ridersOffset += data.length;
     ridersHasMore = data.length === PAGE_SIZE;
     loadMoreBtn.hidden = !ridersHasMore;
