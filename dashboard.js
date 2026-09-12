@@ -1549,6 +1549,31 @@ function messageBubble(message) {
 let currentThreadConversationId = null;
 let messageReplyPhotoPicker;
 
+// Extracted out of openMessageThread so the live-sync realtime handler
+// (see initRealtime()) can re-render an already-open thread the moment
+// a new message lands, without re-running the title/subtitle/reset/
+// mark-as-read setup that should only happen once, on actual open.
+// Preserves scroll position unless the admin was already at the
+// bottom, so a live update while they've scrolled up to read history
+// doesn't yank them back down.
+async function loadMessageThreadContent(conversationId) {
+  const list = document.getElementById('message-thread-list');
+  const wasAtBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 40;
+
+  const { data, error } = await client
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+  if (error) {
+    showToast(error.message, true);
+    return;
+  }
+  list.innerHTML = '';
+  data.forEach((m) => list.appendChild(messageBubble(m)));
+  if (wasAtBottom) list.scrollTop = list.scrollHeight;
+}
+
 async function openMessageThread(convo) {
   assertPanelAccess('messages');
   currentThreadConversationId = convo.conversation_id;
@@ -1561,16 +1586,7 @@ async function openMessageThread(convo) {
   const list = document.getElementById('message-thread-list');
   list.innerHTML = '';
 
-  const { data, error } = await client
-    .from('messages')
-    .select('*')
-    .eq('conversation_id', convo.conversation_id)
-    .order('created_at', { ascending: true });
-  if (error) {
-    showToast(error.message, true);
-    return;
-  }
-  data.forEach((m) => list.appendChild(messageBubble(m)));
+  await loadMessageThreadContent(convo.conversation_id);
   list.scrollTop = list.scrollHeight;
 
   if (convo.unread_count) {
@@ -2286,6 +2302,103 @@ function applyRoleVisibility(role) {
   badge.hidden = false;
 }
 
+// --- Realtime ---------------------------------------------------------
+// FIXES: applications/messages/flagged-products/user-reports counts (and
+// the panels' actual contents) only ever updated on page load or right
+// after this admin's own action — every one of loadOverview/
+// loadApplications/loadRiderApplications/loadFlagged/loadUserReports/
+// loadUserMessages was a plain one-shot fetch with nothing anywhere
+// telling this tab "something changed elsewhere". A seller application
+// coming in, a user reporting a product, or a user messaging support
+// from a completely different session never touched this tab until it
+// was reloaded.
+//
+// Requires migration 0097 (seller_applications, rider_applications,
+// product_reports, store_reports, conversations added to the
+// supabase_realtime publication — messages already was, migration
+// 0016; products already is as of migration 0096).
+//
+// One shared channel, gated per-table by the same PANEL_ROLE_ACCESS
+// check boot() already uses for which lists to fetch — a role with no
+// SELECT grant on a table wouldn't receive anything from it anyway
+// (Realtime authorizes per-table against the same RLS policies as a
+// normal read), but there's no reason to open a subscription a role
+// isn't allowed to read from.
+let realtimeChannel = null;
+
+function isPanelActive(panelId) {
+  return document.getElementById(`panel-${panelId}`)?.classList.contains('active') ?? false;
+}
+
+function initRealtime(role) {
+  if (realtimeChannel) return; // boot() only ever runs once per page load, but guard against re-entry
+  realtimeChannel = client.channel('admin-dashboard-live');
+
+  if (canAccessPanel('applications', role)) {
+    realtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'seller_applications' }, () => {
+      loadOverview();
+      if (isPanelActive('applications')) loadApplications();
+    });
+  }
+
+  if (canAccessPanel('riders', role)) {
+    realtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'rider_applications' }, () => {
+      loadOverview();
+      if (isPanelActive('riders')) loadRiderApplications();
+    });
+  }
+
+  if (canAccessPanel('flagged', role)) {
+    realtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+      loadOverview();
+      if (isPanelActive('flagged')) loadFlagged();
+    });
+  }
+
+  if (canAccessPanel('reports', role)) {
+    const onReportChange = () => {
+      loadOverview();
+      if (isPanelActive('reports')) loadUserReports();
+      // A new/cleared report also changes the report_count column shown
+      // on the Flagged products panel, even when moderation_status itself
+      // hasn't changed.
+      if (isPanelActive('flagged')) loadFlagged();
+    };
+    realtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'product_reports' }, onReportChange);
+    realtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'store_reports' }, onReportChange);
+  }
+
+  if (canAccessPanel('messages', role)) {
+    realtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => {
+      if (isPanelActive('messages')) loadUserMessages();
+    });
+
+    realtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
+      loadOverview();
+      if (isPanelActive('messages')) loadUserMessages();
+
+      const conversationId = (payload.new && payload.new.conversation_id) || (payload.old && payload.old.conversation_id);
+      if (conversationId && conversationId === currentThreadConversationId && isPanelActive('message-thread')) {
+        loadMessageThreadContent(conversationId);
+        // Admin is actively looking at this thread as the message
+        // arrives — mark it read same as opening the thread does. Once
+        // this UPDATE lands it flips is_read to true, so the resulting
+        // change event finds nothing left matching is_read = false and
+        // this doesn't loop.
+        client
+          .from('messages')
+          .update({ is_read: true })
+          .eq('conversation_id', conversationId)
+          .neq('sender_id', SUPPORT_ACCOUNT_ID)
+          .eq('is_read', false)
+          .then(() => loadOverview());
+      }
+    });
+  }
+
+  realtimeChannel.subscribe();
+}
+
 // --- Boot -----------------------------------------------------------------
 
 async function boot() {
@@ -2296,6 +2409,7 @@ async function boot() {
 
     const role = getAdminRole();
     applyRoleVisibility(role);
+    initRealtime(role);
 
     initNav();
     initStatCards();
